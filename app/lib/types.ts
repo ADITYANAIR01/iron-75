@@ -22,7 +22,7 @@ export interface DailyLog {
   energyLevel: number; // 1–5
   motivationLevel: number; // 1–5
   sorenessLevel: number; // 1–5
-  progressPhotoUrl: string; // base64 for now, S3 key later
+  progressPhotoUrl: string; // base64 for now, Supabase Storage later
   allTasksComplete: boolean;
   celebrationShown: boolean;
   aiInsightShown: string;

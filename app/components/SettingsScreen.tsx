@@ -2,10 +2,12 @@
 
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
-import { getAppState, saveAppState, getToday } from '../lib/storage';
+import { getAppState, saveAppState, getToday, saveProfileName } from '../lib/storage';
 import { AppState } from '../lib/types';
+import { useAuth } from './AuthProvider';
 
 export default function SettingsScreen() {
+  const { user, signOut } = useAuth();
   const [state, setState] = useState<AppState | null>(null);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [name, setName] = useState('');
@@ -17,7 +19,7 @@ export default function SettingsScreen() {
   }, []);
 
   const handleNameSave = () => {
-    localStorage.setItem('iron75_user_name', name);
+    saveProfileName(name);
   };
 
   const handleRestartChallenge = () => {
@@ -115,7 +117,7 @@ export default function SettingsScreen() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-gray-300">10 PM daily reminder</p>
-            <p className="text-xs text-gray-500 mt-0.5">Firebase FCM — configure after cloud setup</p>
+            <p className="text-xs text-gray-500 mt-0.5">Push notifications — coming soon</p>
           </div>
           <div
             className="px-3 py-1 rounded-full text-xs"
@@ -176,6 +178,42 @@ export default function SettingsScreen() {
         )}
       </motion.div>
 
+      {/* Account section */}
+      <motion.div
+        className="rounded-2xl p-5"
+        style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.22 }}
+      >
+        <h2 className="font-bold text-sm text-gray-300 uppercase tracking-wide mb-3">Account</h2>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-300">Signed in as</p>
+              <p className="text-xs mt-0.5" style={{ color: '#4ECDC4' }}>{user?.email ?? 'Unknown'}</p>
+            </div>
+            <div
+              className="px-3 py-1 rounded-full text-xs font-semibold"
+              style={{ background: 'rgba(78,205,196,0.15)', color: '#4ECDC4', border: '1px solid #4ECDC455' }}
+            >
+              Supabase
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            Data syncs to cloud automatically. Works offline too.
+          </p>
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={signOut}
+            className="w-full py-3 rounded-xl text-sm font-bold"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #2a2a4a', color: '#e2e8f0' }}
+          >
+            🚪 Sign Out
+          </motion.button>
+        </div>
+      </motion.div>
+
       {/* About */}
       <motion.div
         className="rounded-2xl p-5 text-center"
@@ -186,8 +224,8 @@ export default function SettingsScreen() {
       >
         <p className="text-2xl mb-2">🔥</p>
         <p className="font-black text-lg text-white">IRON75</p>
-        <p className="text-xs text-gray-500 mt-1">v0.1.0 — Frontend MVP (localStorage)</p>
-        <p className="text-xs text-gray-500">Next.js · TypeScript · Tailwind · Framer Motion</p>
+        <p className="text-xs text-gray-500 mt-1">v0.2.0 — Supabase Cloud Sync</p>
+        <p className="text-xs text-gray-500">Next.js · TypeScript · Tailwind · Supabase · Framer Motion</p>
         <a
           href="https://github.com"
           className="text-xs mt-2 block underline"

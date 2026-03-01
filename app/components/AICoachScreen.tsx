@@ -19,7 +19,7 @@ export default function AICoachScreen() {
     <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl font-black" style={{ color: '#4ECDC4' }}>AI Coach</h1>
-        <p className="text-xs text-gray-500 mt-0.5">Powered by Google Gemini Flash (AWS Lambda)</p>
+        <p className="text-xs text-gray-500 mt-0.5">Powered by Google Gemini Flash (Supabase Edge Functions)</p>
       </motion.div>
 
       {/* Daily insight */}
@@ -54,7 +54,7 @@ export default function AICoachScreen() {
           <span className="font-bold text-sm" style={{ color: '#FF6B35' }}>Pattern Analysis</span>
         </div>
         <p className="text-sm text-gray-400">
-          When you have 7+ days of data, Gemini will analyze patterns — low mood streaks, declining energy, missed workouts — and give you targeted advice.
+          When you have 7+ days of data, Gemini will analyze patterns via Supabase Edge Functions — low mood streaks, declining energy, missed workouts — and give you targeted advice.
         </p>
       </motion.div>
 

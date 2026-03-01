@@ -1,4 +1,4 @@
-// ─── Shared AI tips (placeholder until Gemini Lambda is live) ────────────────
+// ─── Shared AI tips (placeholder until Gemini via Supabase Edge Functions) ───
 
 const DAILY_TIPS = [
   'Start strong. Your first week sets the tone for all 75 days. Discipline outlasts motivation.',

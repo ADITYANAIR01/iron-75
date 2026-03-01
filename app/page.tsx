@@ -1,11 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import { TabId } from './lib/types';
+import { AuthProvider, useAuth } from './components/AuthProvider';
+import { syncFromSupabase } from './lib/storage';
 
 // ─── Lazy-load screens (avoids SSR issues with localStorage) ─────────────────
+const LoginScreen = dynamic(() => import('./components/LoginScreen'), { ssr: false });
 const TodayScreen = dynamic(() => import('./components/TodayScreen'), {
   ssr: false,
   loading: () => (
@@ -37,7 +40,42 @@ const TABS: { id: TabId; icon: string; label: string }[] = [
 
 // ─── App Shell ─────────────────────────────────────────────────────────────────
 export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
+  );
+}
+
+function AuthGate() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-dvh" style={{ background: '#0D0D1A' }}>
+        <motion.div
+          className="text-5xl"
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+        >
+          🔥
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (!user) return <LoginScreen />;
+
+  return <AppShell />;
+}
+
+function AppShell() {
   const [activeTab, setActiveTab] = useState<TabId>('today');
+
+  // Sync cloud → localStorage on mount
+  useEffect(() => {
+    syncFromSupabase();
+  }, []);
 
   return (
     <div
