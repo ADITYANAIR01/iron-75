@@ -1,0 +1,20 @@
+{
+  "name": "Iron75 — 75 Hard Tracker",
+  "short_name": "Iron75",
+  "description": "Your personal 75 Hard challenge tracker with PPL workout scheduler and AI coaching.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0D0D1A",
+  "theme_color": "#FF6B35",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "categories": ["health", "fitness", "lifestyle"]
+}

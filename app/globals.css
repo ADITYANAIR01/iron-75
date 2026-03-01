@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+/* ─── Iron75 Design System ─────────────────────────────────────────────────── */
+:root {
+  --iron-bg: #0D0D1A;
+  --iron-surface: #12122A;
+  --iron-surface2: #1a1a3a;
+  --iron-orange: #FF6B35;
+  --iron-teal: #4ECDC4;
+  --iron-yellow: #FFE66D;
+  --iron-red: #FF6B6B;
+  --iron-text: #E2E8F0;
+  --iron-muted: #64748B;
+  --foreground: var(--iron-text);
+  --background: var(--iron-bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  /* Prevent font-size inflation on mobile */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--iron-bg);
+  color: var(--iron-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100dvh;
+  overscroll-behavior: none;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a4a;
+  border-radius: 4px;
+}
+
+/* ─── Custom range slider ────────────────────────────────────────────────────── */
+.iron75-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: #1a1a3a;
+  outline: none;
+  cursor: pointer;
+}
+.iron75-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--iron-orange);
+  cursor: pointer;
+  border: 2px solid var(--iron-bg);
+  box-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+}
+.iron75-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--iron-orange);
+  cursor: pointer;
+  border: 2px solid var(--iron-bg);
+}
+
+/* ─── Safe-area padding for PWA home bar ────────────────────────────────────── */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+/* ─── Navigation tab active glow ─────────────────────────────────────────────── */
+.tab-active {
+  color: var(--iron-orange);
+  filter: drop-shadow(0 0 6px rgba(255, 107, 53, 0.6));
+}
+
+/* ─── Fonts ──────────────────────────────────────────────────────────────────── */
+@theme inline {
+  --color-background: var(--iron-bg);
+  --color-foreground: var(--iron-text);
+}
+
