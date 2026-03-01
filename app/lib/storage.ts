@@ -262,6 +262,32 @@ export async function syncFromSupabase(): Promise<void> {
   }
 }
 
+// ─── Supabase Storage — progress photo upload ────────────────────────────────
+export async function uploadProgressPhoto(
+  file: File,
+  date: string
+): Promise<string | null> {
+  const userId = await getSupabaseUserId();
+  if (!userId) return null;
+  try {
+    const supabase = createClient();
+    const ext = file.name.split('.').pop() ?? 'jpg';
+    const path = `${userId}/${date}.${ext}`;
+    const { error } = await supabase.storage
+      .from('progress-photos')
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (error) {
+      console.error('Photo upload error:', error.message);
+      return null;
+    }
+    const { data } = supabase.storage.from('progress-photos').getPublicUrl(path);
+    return data?.publicUrl ?? null;
+  } catch (err) {
+    console.error('Photo upload exception:', err);
+    return null;
+  }
+}
+
 // ─── Save profile name to Supabase ─────────────────────────────────────────
 export async function saveProfileName(name: string): Promise<void> {
   localStorage.setItem('iron75_user_name', name);

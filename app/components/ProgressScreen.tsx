@@ -504,20 +504,73 @@ export default function ProgressScreen() {
         )}
 
         {/* ── PHOTOS TAB ── */}
-        {activeTab === 'photos' && (
+        {activeTab === 'photos' && mounted && (
           <motion.div
             key="photos"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            className="rounded-2xl p-8 text-center"
-            style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+            className="flex flex-col gap-4"
           >
-            <div className="text-5xl mb-3">📸</div>
-            <p className="text-sm" style={{ color: '#64748b' }}>
-              Photo comparison coming soon. Upload daily progress photos from the Today tab
-              — they&apos;re stored locally on your device.
-            </p>
+            {/* Photo grid */}
+            {(() => {
+              const photos: { date: string; url: string; day: number }[] = [];
+              const startDate = localStorage.getItem('iron75_start_date') ?? new Date().toISOString().split('T')[0];
+              const currentDay = parseInt(localStorage.getItem('iron75_day') ?? '1', 10);
+              for (let i = 0; i < currentDay && i < 75; i++) {
+                const d = new Date(startDate + 'T12:00:00');
+                d.setDate(d.getDate() + i);
+                const date = d.toISOString().split('T')[0];
+                const url = localStorage.getItem(`iron75_photo_${date}`) ?? (() => {
+                  const raw = localStorage.getItem(`iron75_dailylog_${date}`);
+                  if (!raw) return null;
+                  try { const log = JSON.parse(raw); return log.progressPhotoUrl || null; } catch { return null; }
+                })();
+                if (url) photos.push({ date, url, day: i + 1 });
+              }
+
+              if (photos.length === 0) {
+                return (
+                  <div className="rounded-2xl p-8 text-center" style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}>
+                    <div className="text-5xl mb-3">📸</div>
+                    <p className="text-sm font-bold text-white mb-1">No photos yet</p>
+                    <p className="text-xs" style={{ color: '#64748b' }}>
+                      Upload your daily progress photo from the Today tab — it uploads to Supabase cloud storage.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <>
+                  <div className="rounded-2xl p-4" style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}>
+                    <p className="text-sm font-bold text-white mb-1">{photos.length} Progress Photos</p>
+                    <p className="text-xs text-gray-500">Your transformation in pictures</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {photos.map((p) => (
+                      <motion.div
+                        key={p.date}
+                        className="relative rounded-xl overflow-hidden aspect-[3/4]"
+                        style={{ border: '1px solid #2a2a4a' }}
+                        whileHover={{ scale: 1.03 }}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.url} alt={`Day ${p.day}`} className="w-full h-full object-cover" />
+                        <div
+                          className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center text-xs font-bold"
+                          style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}
+                        >
+                          Day {p.day}
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
           </motion.div>
         )}
 
