@@ -1,6 +1,7 @@
 // ─── Iron75 localStorage Utilities ──────────────────────────────────────────
 
 import { DailyLog, AppState, MoodEmoji } from './types';
+import { withRetrySync } from './retry';
 
 // ── Key helpers ───────────────────────────────────────────────────────────────
 export const KEYS = {
@@ -30,6 +31,45 @@ export function getDayOfWeek(dateStr: string): number {
   return new Date(dateStr + 'T12:00:00').getDay();
 }
 
+// ── Storage helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Removes daily-log entries older than 75 days to free localStorage quota.
+ * Called automatically before retrying a failed write.
+ */
+function evictOldLogs(): void {
+  const logPrefix = KEYS.DAILY_LOG('');
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 75);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+  const toRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(logPrefix)) {
+      const dateStr = key.slice(logPrefix.length);
+      if (dateStr < cutoffStr) toRemove.push(key);
+    }
+  }
+  for (const key of toRemove) localStorage.removeItem(key);
+}
+
+/**
+ * Writes `value` to localStorage under `key`, retrying up to 3 times.
+ * Old daily-log entries are evicted once before the first retry to free space.
+ */
+function safeSetItem(key: string, value: string): void {
+  let evicted = false;
+  withRetrySync(() => localStorage.setItem(key, value), {
+    attempts: 3,
+    onRetry: () => {
+      if (!evicted) {
+        evictOldLogs();
+        evicted = true;
+      }
+    },
+  });
+}
+
 // ── App state (streak / day / meta) ──────────────────────────────────────────
 function defaultAppState(): AppState {
   return {
@@ -54,11 +94,11 @@ export function getAppState(): AppState {
 
 export function saveAppState(state: AppState): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(KEYS.STREAK, String(state.streak));
-  localStorage.setItem(KEYS.DAY, String(state.currentDay));
-  localStorage.setItem(KEYS.START_DATE, state.startDate);
-  localStorage.setItem(KEYS.LONGEST_STREAK, String(state.longestStreak));
-  localStorage.setItem(KEYS.TOTAL_RESTARTS, String(state.totalRestarts));
+  safeSetItem(KEYS.STREAK, String(state.streak));
+  safeSetItem(KEYS.DAY, String(state.currentDay));
+  safeSetItem(KEYS.START_DATE, state.startDate);
+  safeSetItem(KEYS.LONGEST_STREAK, String(state.longestStreak));
+  safeSetItem(KEYS.TOTAL_RESTARTS, String(state.totalRestarts));
 }
 
 // ── Daily log ─────────────────────────────────────────────────────────────────
@@ -98,7 +138,7 @@ export function getDailyLog(date: string): DailyLog | null {
 
 export function saveDailyLog(log: DailyLog): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(KEYS.DAILY_LOG(log.date), JSON.stringify(log));
+  safeSetItem(KEYS.DAILY_LOG(log.date), JSON.stringify(log));
 }
 
 /** Returns the log for today, creating a default if it doesn't exist yet. */
