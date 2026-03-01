@@ -111,6 +111,13 @@ export function getOrCreateTodayLog(): DailyLog {
   return fresh;
 }
 
+/** Resets today's daily log back to the default state. Returns the fresh log. */
+export function resetTodayLog(): DailyLog {
+  const fresh = createDefaultDailyLog(getToday());
+  saveDailyLog(fresh);
+  return fresh;
+}
+
 // ── Task completion check ─────────────────────────────────────────────────────
 export function checkAllTasksComplete(log: DailyLog): boolean {
   const dietFilled =

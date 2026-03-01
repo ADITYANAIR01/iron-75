@@ -2,12 +2,13 @@
 
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
-import { getAppState, saveAppState, getToday } from '../lib/storage';
+import { getAppState, saveAppState, getToday, resetTodayLog } from '../lib/storage';
 import { AppState } from '../lib/types';
 
 export default function SettingsScreen() {
   const [state, setState] = useState<AppState | null>(null);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
+  const [showConfirmResetToday, setShowConfirmResetToday] = useState(false);
   const [name, setName] = useState('');
 
   useEffect(() => {
@@ -33,6 +34,12 @@ export default function SettingsScreen() {
     setState(newState);
     setShowConfirmReset(false);
     alert('Challenge restarted. Day 1 begins today! 🔥');
+  };
+
+  const handleResetTodayTasks = () => {
+    resetTodayLog();
+    setShowConfirmResetToday(false);
+    alert('Today\'s tasks have been reset. Retry all! 💪');
   };
 
   return (
@@ -135,6 +142,48 @@ export default function SettingsScreen() {
         transition={{ delay: 0.25 }}
       >
         <h2 className="font-bold text-sm text-red-400 uppercase tracking-wide mb-3">Danger Zone</h2>
+
+        {/* Reset Today's Tasks */}
+        <div className="mb-3">
+          {!showConfirmResetToday ? (
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowConfirmResetToday(true)}
+              className="w-full py-3 rounded-xl text-sm font-bold text-orange-400"
+              style={{ background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.4)' }}
+            >
+              🔁 Retry All — Reset Today&apos;s Tasks
+            </motion.button>
+          ) : (
+            <motion.div
+              className="flex flex-col gap-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              <p className="text-sm text-orange-300 mb-2">
+                Reset all of today&apos;s tasks back to zero? Your streak and challenge progress are unaffected.
+              </p>
+              <div className="flex gap-2">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleResetTodayTasks}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-white"
+                  style={{ background: 'rgba(251,146,60,0.5)' }}
+                >
+                  Yes, Reset Today
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowConfirmResetToday(false)}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-gray-300"
+                  style={{ background: 'rgba(255,255,255,0.08)' }}
+                >
+                  Cancel
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+        </div>
 
         {!showConfirmReset ? (
           <motion.button
