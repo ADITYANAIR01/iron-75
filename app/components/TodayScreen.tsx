@@ -6,6 +6,7 @@ import {
   saveDailyLog,
   getOrCreateTodayLog,
   checkAllTasksComplete,
+  uploadProgressPhoto,
 } from '../lib/storage';
 import { initializeStreakOnLoad, completeTodayStreak, getDaysToWedding, isPastTenPM } from '../lib/streakLogic';
 import { DailyLog, AppState, MoodEmoji } from '../lib/types';
@@ -251,6 +252,7 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
   const [showTenPMWarning, setShowTenPMWarning] = useState(false);
   const [tipDismissed, setTipDismissed] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
   const celebrationFiredRef = useRef(false);
 
   // ── Hydrate from localStorage ──────────────────────────────────────────────
@@ -348,17 +350,26 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
     updateLog((p) => ({ ...p, readingBook: title }));
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64 = ev.target?.result as string;
-      updateLog((p) => ({ ...p, progressPhotoUrl: base64 }));
-      // Also store separately with date key for Progress tab
-      localStorage.setItem(`iron75_photo_${log?.date}`, base64);
-    };
-    reader.readAsDataURL(file);
+    setPhotoUploading(true);
+    // Try Supabase Storage first, fall back to base64 local
+    const cloudUrl = await uploadProgressPhoto(file, log?.date ?? '');
+    if (cloudUrl) {
+      updateLog((p) => ({ ...p, progressPhotoUrl: cloudUrl }));
+      if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, cloudUrl);
+    } else {
+      // Fallback: store as base64 locally
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const base64 = ev.target?.result as string;
+        updateLog((p) => ({ ...p, progressPhotoUrl: base64 }));
+        if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, base64);
+      };
+      reader.readAsDataURL(file);
+    }
+    setPhotoUploading(false);
   };
 
   const toggleCard = (id: string) =>
@@ -744,23 +755,24 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
                 ) : (
                   <div className="flex flex-col items-center gap-3 py-2">
                     <p className="text-sm text-gray-500 text-center">
-                      Upload your daily progress photo. Private — stored locally.
+                      Upload your daily progress photo. Stored to Supabase cloud.
                     </p>
                     <label
                       className="flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm cursor-pointer"
                       style={{
                         background: 'rgba(255,255,255,0.04)',
                         border: '1px dashed #3a3a5a',
-                        color: '#64748b',
+                        color: photoUploading ? '#4ECDC4' : '#64748b',
                       }}
                     >
-                      <span>📷 Upload Photo</span>
+                      <span>{photoUploading ? '⏳ Uploading...' : '📷 Upload Photo'}</span>
                       <input
                         type="file"
                         accept="image/*"
                         capture="environment"
                         onChange={handlePhotoUpload}
                         className="hidden"
+                        disabled={photoUploading}
                       />
                     </label>
                   </div>

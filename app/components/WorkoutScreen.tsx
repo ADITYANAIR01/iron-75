@@ -1,88 +1,393 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
-import { getToday } from '../lib/storage';
+import { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { SESSIONS, getTodaySession, SessionSpec, ExerciseSpec } from '../lib/pplData';
+import { getToday, saveDailyLog, getOrCreateTodayLog } from '../lib/storage';
 
-// ─── PPL Schedule data ─────────────────────────────────────────────────────────
-const PPL_SCHEDULE: Record<number, { session: string; muscles: string; emoji: string }> = {
-  0: { session: 'Mobility', muscles: 'Full body flexibility + stretch', emoji: '🧘' },
-  1: { session: 'Push A', muscles: 'Chest, Front Delts, Triceps', emoji: '💪' },
-  2: { session: 'Pull A', muscles: 'Back, Rear Delts, Biceps', emoji: '🏋️' },
-  3: { session: 'Legs A', muscles: 'Quads, Hamstrings, Calves, Glutes', emoji: '🦵' },
-  4: { session: 'Push B', muscles: 'Chest (incline), Shoulders, Triceps', emoji: '💪' },
-  5: { session: 'Pull B', muscles: 'Back (row focus), Biceps variations', emoji: '🏋️' },
-  6: { session: 'Legs B', muscles: 'Legs — posterior chain focus', emoji: '🦵' },
-};
+// ─── Set tracker type ────────────────────────────────────────────────────────
+interface SetState {
+  done: boolean;
+  reps: string;
+}
 
-export default function WorkoutScreen() {
-  const [todaySession, setTodaySession] = useState<{ session: string; muscles: string; emoji: string } | null>(null);
+interface ExerciseState {
+  sets: SetState[];
+  notes: string;
+  expanded: boolean;
+}
 
-  useEffect(() => {
-    const dow = new Date(getToday() + 'T12:00:00').getDay();
-    setTodaySession(PPL_SCHEDULE[dow]);
-  }, []);
+// ─── Day-selector keys ────────────────────────────────────────────────────────
+const SESSION_ORDER = ['pushA', 'pullA', 'legsA', 'pushB', 'pullB', 'legsB', 'mobility'];
+
+// ─── Storage helpers ──────────────────────────────────────────────────────────
+function loadWorkoutState(date: string, session: SessionSpec): Record<string, ExerciseState> {
+  try {
+    const raw = localStorage.getItem(`iron75_workout_state_${date}_${session.key}`);
+    if (raw) return JSON.parse(raw);
+  } catch { /* empty */ }
+  const init: Record<string, ExerciseState> = {};
+  session.exercises.forEach((ex) => {
+    init[ex.name] = {
+      sets: Array.from({ length: ex.sets }, () => ({ done: false, reps: '' })),
+      notes: '',
+      expanded: false,
+    };
+  });
+  return init;
+}
+
+function saveWorkoutState(date: string, sessionKey: string, state: Record<string, ExerciseState>) {
+  localStorage.setItem(`iron75_workout_state_${date}_${sessionKey}`, JSON.stringify(state));
+}
+
+// ─── Exercise Card ────────────────────────────────────────────────────────────
+function ExerciseCard({
+  exercise,
+  state,
+  sessionColor,
+  onChange,
+}: {
+  exercise: ExerciseSpec;
+  state: ExerciseState;
+  sessionColor: string;
+  onChange: (next: ExerciseState) => void;
+}) {
+  const allDone = state.sets.every((s) => s.done);
+  const doneSets = state.sets.filter((s) => s.done).length;
+
+  const toggleSet = (i: number) => {
+    const sets = state.sets.map((s, idx) => idx === i ? { ...s, done: !s.done } : s);
+    onChange({ ...state, sets });
+  };
+
+  const setReps = (i: number, reps: string) => {
+    const sets = state.sets.map((s, idx) => idx === i ? { ...s, reps } : s);
+    onChange({ ...state, sets });
+  };
 
   return (
-    <div className="flex flex-col gap-6 px-4 pt-6 pb-24">
-      {/* Header */}
-      <motion.div
-        className="rounded-3xl p-6"
-        style={{
-          background: 'linear-gradient(135deg, #1a0800 0%, #0D0D1A 100%)',
-          border: '1px solid #FF6B3555',
-        }}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
+    <motion.div
+      layout
+      className="rounded-2xl overflow-hidden"
+      style={{
+        background: allDone
+          ? `linear-gradient(135deg, ${sessionColor}12 0%, rgba(13,13,26,0.95) 100%)`
+          : 'rgba(13,13,40,0.75)',
+        border: `1px solid ${allDone ? sessionColor + '55' : '#2a2a4a'}`,
+      }}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 140, damping: 22 }}
+    >
+      <button
+        onClick={() => onChange({ ...state, expanded: !state.expanded })}
+        className="w-full flex items-center gap-3 p-4 text-left"
       >
-        <div className="text-xs uppercase tracking-widest mb-1" style={{ color: '#FF6B35', opacity: 0.7 }}>
-          Today&apos;s Session
+        <span className="text-2xl flex-shrink-0">{exercise.emoji}</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-sm leading-tight" style={{ color: allDone ? sessionColor : '#e2e8f0' }}>
+            {exercise.name}
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            {exercise.sets} sets × {exercise.repRange} · {exercise.rest} rest · {exercise.targetMuscle}
+          </div>
         </div>
-        {todaySession && (
-          <div className="flex items-center gap-3">
-            <span className="text-5xl">{todaySession.emoji}</span>
-            <div>
-              <h1 className="text-3xl font-black" style={{ color: '#FF6B35' }}>
-                {todaySession.session}
-              </h1>
-              <p className="text-sm text-gray-400 mt-0.5">{todaySession.muscles}</p>
+        <div className="flex gap-1 flex-shrink-0">
+          {state.sets.map((s, i) => (
+            <div key={i} className="w-2.5 h-2.5 rounded-full" style={{ background: s.done ? sessionColor : '#2a2a4a' }} />
+          ))}
+        </div>
+        <motion.span style={{ color: '#64748b', fontSize: '11px', flexShrink: 0 }} animate={{ rotate: state.expanded ? 180 : 0 }} transition={{ duration: 0.2 }}>▼</motion.span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {state.expanded && (
+          <motion.div
+            key="content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4">
+              <div
+                className="flex items-start gap-2 p-3 rounded-xl mb-3 text-xs text-gray-300 leading-relaxed"
+                style={{ background: `${sessionColor}10`, border: `1px solid ${sessionColor}30` }}
+              >
+                <span className="text-base flex-shrink-0">💡</span>
+                <span>{exercise.tip}</span>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {state.sets.map((s, i) => (
+                  <motion.div key={i} className="flex items-center gap-3" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
+                    <motion.button
+                      onClick={() => toggleSet(i)}
+                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 font-bold text-sm"
+                      style={{
+                        background: s.done ? sessionColor : 'rgba(255,255,255,0.04)',
+                        border: `2px solid ${s.done ? sessionColor : '#2a2a4a'}`,
+                        color: s.done ? '#0D0D1A' : '#64748b',
+                      }}
+                      whileTap={{ scale: 0.85 }}
+                    >
+                      {s.done ? '✓' : i + 1}
+                    </motion.button>
+                    <span className="text-xs text-gray-400 flex-shrink-0 w-16">Set {i + 1} · {exercise.repRange}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={99}
+                      placeholder="reps"
+                      value={s.reps}
+                      onChange={(e) => setReps(i, e.target.value)}
+                      className="px-3 py-2 rounded-lg text-sm text-center"
+                      style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${s.done ? sessionColor + '55' : '#2a2a4a'}`,
+                        color: '#e2e8f0',
+                        width: '70px',
+                      }}
+                    />
+                    <span className="text-xs text-gray-500">reps</span>
+                  </motion.div>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                placeholder="Notes (weight, how it felt...)"
+                value={state.notes}
+                onChange={(e) => onChange({ ...state, notes: e.target.value })}
+                className="mt-3 w-full px-3 py-2 rounded-lg text-xs"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid #2a2a4a', color: '#e2e8f0' }}
+              />
+              <div className="mt-2 flex justify-between text-xs text-gray-500">
+                <span>{doneSets}/{exercise.sets} sets done</span>
+                <span>{exercise.rest} rest between sets</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+// ─── Session selector pills ───────────────────────────────────────────────────
+function SessionPills({ current, onSelect }: { current: string; onSelect: (key: string) => void }) {
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+      {SESSION_ORDER.map((key) => {
+        const s = SESSIONS[key];
+        const isActive = key === current;
+        return (
+          <motion.button
+            key={key}
+            onClick={() => onSelect(key)}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold whitespace-nowrap"
+            style={{
+              background: isActive ? s.color : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${isActive ? s.color : '#2a2a4a'}`,
+              color: isActive ? '#0D0D1A' : '#64748b',
+            }}
+            whileTap={{ scale: 0.9 }}
+          >
+            {s.emoji} {s.name}
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Warmup / Cooldown section ────────────────────────────────────────────────
+function WarmCoolSection({ title, items, color }: { title: string; items: string[]; color: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(13,13,40,0.7)', border: '1px solid #1a1a3a' }}>
+      <button onClick={() => setOpen((p) => !p)} className="w-full flex items-center justify-between p-3 text-left">
+        <span className="text-sm font-bold" style={{ color }}>{title}</span>
+        <motion.span style={{ fontSize: '11px', color: '#64748b' }} animate={{ rotate: open ? 180 : 0 }}>▼</motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.ul
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden px-4 pb-3 flex flex-col gap-1"
+          >
+            {items.map((item, i) => (
+              <li key={i} className="text-xs text-gray-400 flex items-start gap-2">
+                <span style={{ color }}>•</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </motion.ul>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Main WorkoutScreen ───────────────────────────────────────────────────────
+export default function WorkoutScreen() {
+  const today = getToday();
+  const todaySession = getTodaySession();
+
+  const [selectedSessionKey, setSelectedSessionKey] = useState(todaySession.key);
+  const [exerciseStates, setExerciseStates] = useState<Record<string, ExerciseState>>({});
+  const [sessionComplete, setSessionComplete] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  const session = SESSIONS[selectedSessionKey];
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    setExerciseStates(loadWorkoutState(today, session));
+    const completedKey = `iron75_workout_complete_${today}_${session.key}`;
+    setSessionComplete(localStorage.getItem(completedKey) === '1');
+  }, [selectedSessionKey, mounted, today, session]);
+
+  const updateExercise = useCallback(
+    (exName: string, next: ExerciseState) => {
+      setExerciseStates((prev) => {
+        const updated = { ...prev, [exName]: next };
+        saveWorkoutState(today, session.key, updated);
+        return updated;
+      });
+    },
+    [today, session.key]
+  );
+
+  const totalSets = session.exercises.reduce((s, ex) => s + ex.sets, 0);
+  const doneSets = Object.values(exerciseStates).reduce(
+    (s, ex) => s + ex.sets.filter((st) => st.done).length,
+    0
+  );
+  const completedExercises = session.exercises.filter(
+    (ex) => exerciseStates[ex.name]?.sets.every((s) => s.done)
+  ).length;
+
+  const handleCompleteSession = () => {
+    const log = getOrCreateTodayLog();
+    saveDailyLog({ ...log, gymWorkoutDone: true });
+    localStorage.setItem(`iron75_workout_complete_${today}_${session.key}`, '1');
+    setSessionComplete(true);
+  };
+
+  if (!mounted) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <motion.div className="text-4xl" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>🏋️</motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 px-4 pt-5 pb-24">
+      <div>
+        <div className="text-xs uppercase tracking-widest mb-2" style={{ color: session.color, opacity: 0.8 }}>Select Session</div>
+        <SessionPills current={selectedSessionKey} onSelect={setSelectedSessionKey} />
+      </div>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={session.key}
+          className="rounded-3xl p-5 relative overflow-hidden"
+          style={{
+            background: `linear-gradient(135deg, ${session.color}15 0%, #0D0D1A 100%)`,
+            border: `1px solid ${session.color}44`,
+          }}
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -16 }}
+        >
+          <div className="absolute right-4 top-4 text-7xl opacity-10">{session.emoji}</div>
+          <div className="relative">
+            {selectedSessionKey === todaySession.key && (
+              <div className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full mb-2" style={{ background: '#FF6B3533', color: '#FF6B35', border: '1px solid #FF6B3544' }}>
+                📅 Today&apos;s Session
+              </div>
+            )}
+            <div className="text-xs uppercase tracking-widest mb-1" style={{ color: session.color, opacity: 0.7 }}>{session.muscles}</div>
+            <h1 className="text-2xl font-black text-white mb-1">{session.fullName}</h1>
+            <p className="text-sm text-gray-400 italic">&quot;{session.tagline}&quot;</p>
+            <div className="mt-4">
+              <div className="flex justify-between text-xs text-gray-500 mb-1">
+                <span>{completedExercises}/{session.exercises.length} exercises</span>
+                <span style={{ color: session.color }}>{doneSets}/{totalSets} sets</span>
+              </div>
+              <div className="h-2 rounded-full" style={{ background: '#1a1a3a' }}>
+                <motion.div
+                  className="h-2 rounded-full"
+                  style={{ background: session.color }}
+                  animate={{ width: totalSets > 0 ? `${(doneSets / totalSets) * 100}%` : '0%' }}
+                  transition={{ type: 'spring', stiffness: 80 }}
+                />
+              </div>
             </div>
           </div>
-        )}
-      </motion.div>
+        </motion.div>
+      </AnimatePresence>
 
-      {/* Build notice */}
-      <motion.div
-        className="rounded-2xl p-5 text-center"
-        style={{ background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.3)' }}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-      >
-        <div className="text-4xl mb-3">🏗️</div>
-        <h2 className="text-lg font-bold text-white mb-2">Workout Module — Coming Next</h2>
-        <p className="text-sm text-gray-400 leading-relaxed">
-          Full exercise list with set/rep tracking, warm-up section, and session timer are being built by the Background Agent.
-        </p>
-        <div className="mt-4 flex flex-col gap-2 text-xs text-gray-500">
-          <span>• Exercise cards for Push / Pull / Legs / Mobility</span>
-          <span>• Individual set checkboxes with notes</span>
-          <span>• Session complete → marks gymWorkoutDone ✅</span>
-        </div>
-      </motion.div>
+      <WarmCoolSection title="🔥 Warm-up" items={session.warmup} color={session.color} />
 
-      {/* Quick complete for today */}
-      <motion.div
-        className="rounded-2xl p-4"
-        style={{ background: 'rgba(78,205,196,0.06)', border: '1px solid #4ECDC455' }}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-      >
-        <p className="text-sm text-gray-300 mb-3">
-          For now, mark your workout complete from the <strong style={{ color: '#FF6B35' }}>Today</strong> tab.
-        </p>
-      </motion.div>
+      <AnimatePresence mode="wait">
+        <motion.div key={session.key + '-exercises'} className="flex flex-col gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          {session.exercises.map((ex) => (
+            <ExerciseCard
+              key={ex.name}
+              exercise={ex}
+              state={exerciseStates[ex.name] ?? {
+                sets: Array.from({ length: ex.sets }, () => ({ done: false, reps: '' })),
+                notes: '',
+                expanded: false,
+              }}
+              sessionColor={session.color}
+              onChange={(next) => updateExercise(ex.name, next)}
+            />
+          ))}
+        </motion.div>
+      </AnimatePresence>
+
+      <WarmCoolSection title="❄️ Cool-down" items={session.cooldown} color="#4ECDC4" />
+
+      {sessionComplete ? (
+        <motion.div
+          className="rounded-2xl p-5 text-center"
+          style={{ background: 'rgba(78,205,196,0.12)', border: '1px solid #4ECDC4' }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <div className="text-4xl mb-2">✅</div>
+          <p className="font-black text-lg" style={{ color: '#4ECDC4' }}>Session Complete!</p>
+          <p className="text-xs text-gray-400 mt-1">Gym workout marked done for today. 💪</p>
+        </motion.div>
+      ) : (
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          onClick={handleCompleteSession}
+          className="w-full py-4 rounded-2xl font-black text-base"
+          style={{
+            background: `linear-gradient(135deg, ${session.color}, ${session.color}cc)`,
+            color: '#0D0D1A',
+            boxShadow: `0 4px 20px ${session.color}44`,
+          }}
+        >
+          {doneSets >= Math.floor(totalSets * 0.8)
+            ? '🏆 Finish Session & Log Workout!'
+            : `Complete Session — ${doneSets}/${totalSets} sets done`}
+        </motion.button>
+      )}
     </div>
   );
 }

@@ -1,0 +1,587 @@
+// ─── PPL Exercise Database ───────────────────────────────────────────────────
+
+export interface SetSpec {
+  reps: string; // e.g. "8-10" or "15-20"
+  rest: string; // e.g. "90s"
+}
+
+export interface ExerciseSpec {
+  name: string;
+  emoji: string;
+  sets: number;
+  repRange: string;
+  rest: string;
+  tip: string;
+  targetMuscle: string;
+}
+
+export interface SessionSpec {
+  key: string;
+  name: string;
+  fullName: string;
+  emoji: string;
+  color: string;
+  tagline: string;
+  muscles: string;
+  exercises: ExerciseSpec[];
+  warmup: string[];
+  cooldown: string[];
+}
+
+// Day-of-week index → session key
+export const DOW_TO_SESSION: Record<number, string> = {
+  0: 'mobility', // Sunday
+  1: 'pushA',    // Monday
+  2: 'pullA',    // Tuesday
+  3: 'legsA',    // Wednesday
+  4: 'pushB',    // Thursday
+  5: 'pullB',    // Friday
+  6: 'legsB',    // Saturday
+};
+
+export const SESSIONS: Record<string, SessionSpec> = {
+  pushA: {
+    key: 'pushA',
+    name: 'Push A',
+    fullName: 'Push Day A — Chest Focus',
+    emoji: '💪',
+    color: '#FF6B35',
+    tagline: 'Build that chest. Make it heavy.',
+    muscles: 'Chest · Front Delts · Triceps',
+    warmup: ['5 min arm circles & band pull-aparts', '2 sets push-ups × 15 (bodyweight)', 'Shoulder rotation stretches'],
+    cooldown: ['Doorway chest stretch × 30s each side', 'Tricep overhead stretch × 20s', 'Cross-body shoulder stretch'],
+    exercises: [
+      {
+        name: 'Flat Barbell Bench Press',
+        emoji: '🏋️',
+        sets: 4,
+        repRange: '8–10',
+        rest: '2–3 min',
+        tip: 'Retract scapula, feet flat on floor. Drive the bar, don\'t just push.',
+        targetMuscle: 'Chest',
+      },
+      {
+        name: 'Incline Dumbbell Press',
+        emoji: '↗️',
+        sets: 3,
+        repRange: '10–12',
+        rest: '90s',
+        tip: 'Set bench at 30-45°. Control the eccentric — 2 seconds down.',
+        targetMuscle: 'Upper Chest',
+      },
+      {
+        name: 'Cable Flyes (low to high)',
+        emoji: '🔄',
+        sets: 3,
+        repRange: '12–15',
+        rest: '60s',
+        tip: 'Slight bend in elbows. Squeeze at the top like you\'re hugging a tree.',
+        targetMuscle: 'Chest (inner)',
+      },
+      {
+        name: 'Military Press (Seated)',
+        emoji: '🎖️',
+        sets: 3,
+        repRange: '8–10',
+        rest: '90s',
+        tip: 'Keep core braced. Don\'t arch your lower back excessively.',
+        targetMuscle: 'Front Delts',
+      },
+      {
+        name: 'Lateral Raises',
+        emoji: '🦅',
+        sets: 4,
+        repRange: '15–20',
+        rest: '45s',
+        tip: 'Lead with your elbows, not your hands. Slight lean forward.',
+        targetMuscle: 'Side Delts',
+      },
+      {
+        name: 'Tricep Rope Pushdowns',
+        emoji: '🪝',
+        sets: 3,
+        repRange: '12–15',
+        rest: '60s',
+        tip: 'Flare the rope at the bottom. Keep elbows pinned to your sides.',
+        targetMuscle: 'Triceps (lateral head)',
+      },
+      {
+        name: 'Overhead Tricep Extension',
+        emoji: '⬆️',
+        sets: 3,
+        repRange: '10–12',
+        rest: '60s',
+        tip: 'Full stretch at the bottom. Keep elbows close to your head.',
+        targetMuscle: 'Triceps (long head)',
+      },
+    ],
+  },
+
+  pullA: {
+    key: 'pullA',
+    name: 'Pull A',
+    fullName: 'Pull Day A — Deadlift Focus',
+    emoji: '🏋️',
+    color: '#4ECDC4',
+    tagline: 'Pull heavy. Build your back.',
+    muscles: 'Back · Rear Delts · Biceps',
+    warmup: ['Cat-cow × 10 reps', 'Band pull-aparts × 20', 'Hip hinge with dowel rod × 10'],
+    cooldown: ['Child\'s pose × 45s', 'Lat stretch doorway × 30s each', 'Bicep wall stretch × 20s'],
+    exercises: [
+      {
+        name: 'Conventional Deadlift',
+        emoji: '💀',
+        sets: 4,
+        repRange: '5–6',
+        rest: '3 min',
+        tip: 'Bar over mid-foot, lats tight, drive the floor away. Reset each rep.',
+        targetMuscle: 'Full posterior chain',
+      },
+      {
+        name: 'Barbell Bent-Over Row',
+        emoji: '🔩',
+        sets: 4,
+        repRange: '8–10',
+        rest: '90s',
+        tip: 'Torso at 45°. Row to your lower chest. Squeeze the back, don\'t just pull.',
+        targetMuscle: 'Mid Back, Lats',
+      },
+      {
+        name: 'Lat Pulldown (wide grip)',
+        emoji: '📐',
+        sets: 3,
+        repRange: '10–12',
+        rest: '75s',
+        tip: 'Slight arch, pull the bar to your upper chest. Drive elbows to pockets.',
+        targetMuscle: 'Lats',
+      },
+      {
+        name: 'Seated Cable Row',
+        emoji: '🚣',
+        sets: 3,
+        repRange: '12–15',
+        rest: '60s',
+        tip: 'Chest tall, drive elbows back past your body. 1-second hold at peak.',
+        targetMuscle: 'Mid Back, Rhomboids',
+      },
+      {
+        name: 'Face Pulls',
+        emoji: '😤',
+        sets: 3,
+        repRange: '15–20',
+        rest: '45s',
+        tip: 'Pull to your face, elbows high. Great for shoulder health. Go light.',
+        targetMuscle: 'Rear Delts, Rotator Cuff',
+      },
+      {
+        name: 'Barbell Bicep Curl',
+        emoji: '💈',
+        sets: 3,
+        repRange: '10–12',
+        rest: '60s',
+        tip: 'Don\'t swing. Full range — stretch at bottom, squeeze at top.',
+        targetMuscle: 'Biceps',
+      },
+      {
+        name: 'Hammer Curl',
+        emoji: '🔨',
+        sets: 3,
+        repRange: '12–15',
+        rest: '45s',
+        tip: 'Neutral grip. Works brachialis for bigger overall arm peak.',
+        targetMuscle: 'Brachialis, Biceps',
+      },
+    ],
+  },
+
+  legsA: {
+    key: 'legsA',
+    name: 'Legs A',
+    fullName: 'Legs Day A — Quad Dominant',
+    emoji: '🦵',
+    color: '#FFE66D',
+    tagline: 'No skipping. Champions train legs.',
+    muscles: 'Quads · Hamstrings · Calves · Glutes',
+    warmup: ['Bodyweight squats × 15', 'Hip circles × 10 each direction', 'Walking lunges × 10 steps'],
+    cooldown: ['Pigeon pose × 45s each side', 'Standing quad stretch × 20s', 'Calf wall stretch × 30s'],
+    exercises: [
+      {
+        name: 'Back Squat',
+        emoji: '👑',
+        sets: 4,
+        repRange: '8–10',
+        rest: '3 min',
+        tip: 'Break parallel. Knees track over toes. Brace your core before every rep.',
+        targetMuscle: 'Quads, Glutes',
+      },
+      {
+        name: 'Romanian Deadlift (RDL)',
+        emoji: '🦩',
+        sets: 3,
+        repRange: '10–12',
+        rest: '90s',
+        tip: 'Hinge at hips, slight knee bend. Feel the hamstring stretch. Bar stays close.',
+        targetMuscle: 'Hamstrings, Glutes',
+      },
+      {
+        name: 'Leg Press',
+        emoji: '🚀',
+        sets: 3,
+        repRange: '12–15',
+        rest: '90s',
+        tip: 'Don\'t lock out knees at the top. Feet shoulder-width or higher for glutes.',
+        targetMuscle: 'Quads, Glutes',
+      },
+      {
+        name: 'Leg Extension',
+        emoji: '📏',
+        sets: 3,
+        repRange: '15–20',
+        rest: '60s',
+        tip: 'Pause 1s at the top. Focus on VMO (inner quad) engagement.',
+        targetMuscle: 'Quads (isolation)',
+      },
+      {
+        name: 'Lying Leg Curl',
+        emoji: '🌀',
+        sets: 3,
+        repRange: '12–15',
+        rest: '60s',
+        tip: 'Control the eccentric. Don\'t let the weight crash down.',
+        targetMuscle: 'Hamstrings (isolation)',
+      },
+      {
+        name: 'Standing Calf Raises',
+        emoji: '👟',
+        sets: 4,
+        repRange: '15–25',
+        rest: '45s',
+        tip: 'Full range — deep stretch at bottom. Pause 1s at top. Slow and controlled.',
+        targetMuscle: 'Gastrocnemius',
+      },
+      {
+        name: 'Hip Thrust',
+        emoji: '🍑',
+        sets: 3,
+        repRange: '12–15',
+        rest: '60s',
+        tip: 'Drive through heels. Full hip extension at the top. Glute squeeze!',
+        targetMuscle: 'Glutes',
+      },
+    ],
+  },
+
+  pushB: {
+    key: 'pushB',
+    name: 'Push B',
+    fullName: 'Push Day B — Shoulder Focus',
+    emoji: '💪',
+    color: '#FF6B35',
+    tagline: 'Shoulder day. Build those boulders.',
+    muscles: 'Shoulders · Upper Chest · Triceps',
+    warmup: ['Band pull-aparts × 20', 'Shoulder CARs × 5 each arm', '2 sets push-ups × 12'],
+    cooldown: ['Chest doorway stretch × 30s', 'Sleeper stretch × 20s each', 'Tricep overhead stretch × 20s'],
+    exercises: [
+      {
+        name: 'Incline Barbell Bench Press',
+        emoji: '↗️',
+        sets: 4,
+        repRange: '8–10',
+        rest: '2–3 min',
+        tip: '30–45° incline. Full stretch at bottom. Retract scapula throughout.',
+        targetMuscle: 'Upper Chest',
+      },
+      {
+        name: 'Dumbbell Shoulder Press',
+        emoji: '🏋️',
+        sets: 3,
+        repRange: '10–12',
+        rest: '90s',
+        tip: 'Neutral or pronated grip. Don\'t lock elbows at the top.',
+        targetMuscle: 'Front & Side Delts',
+      },
+      {
+        name: 'Arnold Press',
+        emoji: '🏆',
+        sets: 3,
+        repRange: '10–12',
+        rest: '90s',
+        tip: 'Rotate from palms-facing-you to palms-forward as you press up. Controlled.',
+        targetMuscle: 'All 3 Delt Heads',
+      },
+      {
+        name: 'Cable Lateral Raise',
+        emoji: '🔗',
+        sets: 4,
+        repRange: '15–20',
+        rest: '45s',
+        tip: 'Cable keeps constant tension. Lead with pinky. Don\'t shrug.',
+        targetMuscle: 'Side Delts',
+      },
+      {
+        name: 'Pec Deck / Cable Flye',
+        emoji: '🦋',
+        sets: 3,
+        repRange: '12–15',
+        rest: '60s',
+        tip: 'Slight elbow bend, squeeze for 1s at the peak contraction.',
+        targetMuscle: 'Chest (inner)',
+      },
+      {
+        name: 'Tricep Dips (weighted)',
+        emoji: '⬇️',
+        sets: 3,
+        repRange: '10–12',
+        rest: '75s',
+        tip: 'Slight forward lean for chest. Upright for pure tricep focus.',
+        targetMuscle: 'Triceps',
+      },
+      {
+        name: 'Diamond Push-ups',
+        emoji: '💎',
+        sets: 3,
+        repRange: '12–15',
+        rest: '60s',
+        tip: 'Hands in diamond under chest. Keep core tight. Burn out finisher.',
+        targetMuscle: 'Triceps, Inner Chest',
+      },
+    ],
+  },
+
+  pullB: {
+    key: 'pullB',
+    name: 'Pull B',
+    fullName: 'Pull Day B — Row Focus',
+    emoji: '🏋️',
+    color: '#4ECDC4',
+    tagline: 'Row everything. Build a thick back.',
+    muscles: 'Back (rows) · Rear Delts · Bicep Variations',
+    warmup: ['Band pull-aparts × 20', 'Scapular pull-ups × 10', 'Cat-cow × 10'],
+    cooldown: ['Child\'s pose × 45s', 'Bicep doorway stretch × 20s each', 'Thoracic spine rotations × 5 each'],
+    exercises: [
+      {
+        name: 'Weighted Pull-ups',
+        emoji: '🧲',
+        sets: 4,
+        repRange: '6–8',
+        rest: '2–3 min',
+        tip: 'Full dead hang at bottom. Pull chest to bar. Control the descent.',
+        targetMuscle: 'Lats, Biceps',
+      },
+      {
+        name: 'T-Bar Row',
+        emoji: '✝️',
+        sets: 4,
+        repRange: '10–12',
+        rest: '90s',
+        tip: 'Drive elbows back and squeeze rhomboids. Don\'t round your lower back.',
+        targetMuscle: 'Mid Back, Thickness',
+      },
+      {
+        name: 'Single-Arm DB Row',
+        emoji: '🦾',
+        sets: 3,
+        repRange: '12 each',
+        rest: '60s',
+        tip: 'Brace on bench. Drive elbow to ceiling. Full stretch at the bottom.',
+        targetMuscle: 'Lats, Mid Back',
+      },
+      {
+        name: 'Straight-Arm Pulldown',
+        emoji: '⬇️',
+        sets: 3,
+        repRange: '15–20',
+        rest: '45s',
+        tip: 'Arms stay straight (slight elbow bend). Pure lat isolation. Go light.',
+        targetMuscle: 'Lats (isolation)',
+      },
+      {
+        name: 'Rear Delt Cable Fly',
+        emoji: '🦅',
+        sets: 3,
+        repRange: '15–20',
+        rest: '45s',
+        tip: 'Low cable, arms straight, pull to sides. Don\'t use your traps.',
+        targetMuscle: 'Rear Delts',
+      },
+      {
+        name: 'Preacher Curl',
+        emoji: '🙏',
+        sets: 3,
+        repRange: '10–12',
+        rest: '60s',
+        tip: 'No momentum. Peak squeeze for 1s. Great for long head bicep.',
+        targetMuscle: 'Biceps (peak)',
+      },
+      {
+        name: 'Cable Curl (both arms)',
+        emoji: '🔁',
+        sets: 3,
+        repRange: '12–15',
+        rest: '45s',
+        tip: 'Constant tension from cable. Don\'t let elbows drift forward.',
+        targetMuscle: 'Biceps',
+      },
+    ],
+  },
+
+  legsB: {
+    key: 'legsB',
+    name: 'Legs B',
+    fullName: 'Legs Day B — Posterior Chain',
+    emoji: '🦵',
+    color: '#FFE66D',
+    tagline: 'Hamstrings & glutes. Go deep.',
+    muscles: 'Hamstrings · Glutes · Calves (seated)',
+    warmup: ['Glute bridges × 15', 'Nordic curl negatives × 5', 'Hip flexor stretch × 30s each'],
+    cooldown: ['Pigeon pose × 60s each', 'Standing hamstring stretch × 30s', 'Hip flexor lunge stretch × 30s'],
+    exercises: [
+      {
+        name: 'Romanian Deadlift (heavy)',
+        emoji: '💀',
+        sets: 4,
+        repRange: '8–10',
+        rest: '2–3 min',
+        tip: 'This is the main lift today. Go heavier than Legs A. Maximum hamstring stretch.',
+        targetMuscle: 'Hamstrings, Glutes',
+      },
+      {
+        name: 'Bulgarian Split Squat',
+        emoji: '🇧🇬',
+        sets: 3,
+        repRange: '10 each leg',
+        rest: '90s',
+        tip: 'Rear foot elevated on bench. Drive through front heel. Brutal but effective.',
+        targetMuscle: 'Quads, Glutes (unilateral)',
+      },
+      {
+        name: 'Lying Leg Curl (slow)',
+        emoji: '🐌',
+        sets: 4,
+        repRange: '12–15',
+        rest: '60s',
+        tip: '3-second eccentric. Pause 1s at peak. Hamstring torture. Worth it.',
+        targetMuscle: 'Hamstrings (isolation)',
+      },
+      {
+        name: 'Good Mornings',
+        emoji: '🌅',
+        sets: 3,
+        repRange: '10–12',
+        rest: '75s',
+        tip: 'Bar on upper traps, hinge at hips. Maintain neutral spine throughout.',
+        targetMuscle: 'Hamstrings, Lower Back',
+      },
+      {
+        name: 'Walking Lunges',
+        emoji: '🚶',
+        sets: 3,
+        repRange: '12 steps each leg',
+        rest: '60s',
+        tip: 'Long stride. Front knee over toe. Drive through front heel to stand.',
+        targetMuscle: 'Quads, Glutes (unilateral)',
+      },
+      {
+        name: 'Seated Calf Raise',
+        emoji: '💺',
+        sets: 4,
+        repRange: '15–25',
+        rest: '30s',
+        tip: 'Seated targets soleus (often neglected). Full stretch at bottom. Slow.',
+        targetMuscle: 'Soleus, Calves',
+      },
+      {
+        name: 'Cable Glute Kickback',
+        emoji: '🦶',
+        sets: 3,
+        repRange: '15 each leg',
+        rest: '30s',
+        tip: 'Keep hip square. Drive through heel. Squeeze glute at peak.',
+        targetMuscle: 'Glutes (isolation)',
+      },
+    ],
+  },
+
+  mobility: {
+    key: 'mobility',
+    name: 'Mobility',
+    fullName: 'Active Recovery & Mobility',
+    emoji: '🧘',
+    color: '#A78BFA',
+    tagline: 'Rest is training. Recover like a pro.',
+    muscles: 'Full body flexibility & joint health',
+    warmup: ['5 min light cardio (walk or cycle)', '3 deep breaths in child\'s pose'],
+    cooldown: ['10 min progressive muscle relaxation', 'Journalling: how does your body feel?'],
+    exercises: [
+      {
+        name: 'Hip Flexor Lunge Stretch',
+        emoji: '🦵',
+        sets: 3,
+        repRange: '45s each side',
+        rest: '15s',
+        tip: 'Tuck your pelvis under. Feel the front of your hip opening up.',
+        targetMuscle: 'Hip Flexors',
+      },
+      {
+        name: 'Thoracic Spine Rotation',
+        emoji: '🌀',
+        sets: 3,
+        repRange: '10 each side',
+        rest: '10s',
+        tip: 'In quadruped position. Keep lower back still. Rotate from mid-back.',
+        targetMuscle: 'Thoracic Spine',
+      },
+      {
+        name: 'Cat-Cow Flow',
+        emoji: '🐱',
+        sets: 3,
+        repRange: '10 slow reps',
+        rest: '10s',
+        tip: 'Inhale for cow (arch), exhale for cat (round). Move every vertebra.',
+        targetMuscle: 'Spine, Core',
+      },
+      {
+        name: 'Doorway Chest Stretch',
+        emoji: '🚪',
+        sets: 2,
+        repRange: '45s each arm',
+        rest: '10s',
+        tip: 'Forearm on doorframe at 90°. Gentle lean forward. Don\'t overstretch.',
+        targetMuscle: 'Pecs, Biceps',
+      },
+      {
+        name: 'Pigeon Pose (Hip Opener)',
+        emoji: '🕊️',
+        sets: 2,
+        repRange: '60s each side',
+        rest: '10s',
+        tip: 'Flex front foot for knee protection. Breathe into the hip.',
+        targetMuscle: 'Piriformis, Glutes',
+      },
+      {
+        name: 'World\'s Greatest Stretch',
+        emoji: '🌍',
+        sets: 2,
+        repRange: '5 each side',
+        rest: '15s',
+        tip: 'Lunge, drop elbow to floor, rotate arm to sky. Best full-body stretch.',
+        targetMuscle: 'Full Body',
+      },
+      {
+        name: 'Foam Roll (full body)',
+        emoji: '🧴',
+        sets: 1,
+        repRange: '60–90s per area',
+        rest: '0',
+        tip: 'Pause on tender spots (trigger points) for 20–30s. Don\'t rush this.',
+        targetMuscle: 'Fascia & Muscles',
+      },
+    ],
+  },
+};
+
+export function getTodaySession(): SessionSpec {
+  const dow = new Date().getDay();
+  const key = DOW_TO_SESSION[dow] ?? 'pushA';
+  return SESSIONS[key] ?? SESSIONS['pushA'];
+}

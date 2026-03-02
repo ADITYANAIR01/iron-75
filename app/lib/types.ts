@@ -36,7 +36,7 @@ export interface AppState {
   totalRestarts: number;
 }
 
-export type TabId = 'today' | 'workout' | 'progress' | 'ai' | 'settings';
+export type TabId = 'today' | 'workout' | 'progress' | 'ai' | 'roadmap' | 'settings';
 
 export interface WorkoutSet {
   reps: string;
