@@ -1,15 +1,24 @@
 @import "tailwindcss";
 
-/* ─── Iron75 Design System ─────────────────────────────────────────────────── */
+/* ─── Iron75 Design System v2 — Energetic Dark Neon ────────────────────────── */
 :root {
-  --iron-bg: #0D0D1A;
-  --iron-surface: #12122A;
-  --iron-surface2: #1a1a3a;
+  --iron-bg: #06060F;
+  --iron-surface: #0C0C1E;
+  --iron-surface2: #141432;
+  --iron-glass: rgba(14, 14, 36, 0.65);
+  --iron-glass-border: rgba(255, 255, 255, 0.08);
   --iron-orange: #FF6B35;
-  --iron-teal: #4ECDC4;
+  --iron-orange-glow: rgba(255, 107, 53, 0.4);
+  --iron-teal: #00F5D4;
+  --iron-teal-glow: rgba(0, 245, 212, 0.3);
   --iron-yellow: #FFE66D;
-  --iron-red: #FF6B6B;
-  --iron-text: #E2E8F0;
+  --iron-red: #FF4757;
+  --iron-violet: #A855F7;
+  --iron-violet-glow: rgba(168, 85, 247, 0.3);
+  --iron-lime: #BAFF39;
+  --iron-pink: #FF6B9D;
+  --iron-blue: #38BDF8;
+  --iron-text: #F1F5F9;
   --iron-muted: #64748B;
   --foreground: var(--iron-text);
   --background: var(--iron-bg);
@@ -33,11 +42,11 @@ body {
 
 /* ─── Scrollbar ──────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 3px;
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a4a;
+  background: linear-gradient(180deg, #FF6B35, #A855F7);
   border-radius: 4px;
 }
 
@@ -47,26 +56,30 @@ body {
   appearance: none;
   height: 6px;
   border-radius: 9999px;
-  background: #1a1a3a;
+  background: #141432;
   outline: none;
   cursor: pointer;
 }
 .iron75-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--iron-orange);
+  background: linear-gradient(135deg, var(--iron-orange), #FF8F5E);
   cursor: pointer;
   border: 2px solid var(--iron-bg);
-  box-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+  box-shadow: 0 0 10px rgba(255, 107, 53, 0.5);
+  transition: box-shadow 0.2s;
+}
+.iron75-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 16px rgba(255, 107, 53, 0.7);
 }
 .iron75-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--iron-orange);
+  background: linear-gradient(135deg, var(--iron-orange), #FF8F5E);
   cursor: pointer;
   border: 2px solid var(--iron-bg);
 }
@@ -79,10 +92,10 @@ body {
 /* ─── Navigation tab active glow ─────────────────────────────────────────────── */
 .tab-active {
   color: var(--iron-orange);
-  filter: drop-shadow(0 0 6px rgba(255, 107, 53, 0.6));
+  filter: drop-shadow(0 0 8px rgba(255, 107, 53, 0.7));
 }
 
-/* ─── Duolingo-style bounce animation ────────────────────────────────────────── */
+/* ─── Animations ─────────────────────────────────────────────────────────────── */
 @keyframes iron-bounce {
   0%, 100% { transform: translateY(0); }
   40% { transform: translateY(-8px); }
@@ -91,17 +104,17 @@ body {
 
 @keyframes iron-pop {
   0% { transform: scale(1); }
-  50% { transform: scale(1.12); }
+  50% { transform: scale(1.15); }
   100% { transform: scale(1); }
 }
 
 @keyframes iron-glow-pulse {
-  0%, 100% { box-shadow: 0 0 12px rgba(255, 107, 53, 0.3); }
-  50% { box-shadow: 0 0 24px rgba(255, 107, 53, 0.6); }
+  0%, 100% { box-shadow: 0 0 15px rgba(255, 107, 53, 0.3); }
+  50% { box-shadow: 0 0 30px rgba(255, 107, 53, 0.6); }
 }
 
 @keyframes iron-slide-up {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(24px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -113,14 +126,35 @@ body {
   80% { transform: translateX(3px); }
 }
 
-@keyframes iron-confetti-fall {
-  0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
-  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
-@keyframes iron-streak-fire {
-  0%, 100% { filter: hue-rotate(0deg) brightness(1); }
-  50% { filter: hue-rotate(15deg) brightness(1.2); }
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes border-glow {
+  0%, 100% { border-color: rgba(255,107,53,0.3); }
+  50% { border-color: rgba(255,107,53,0.6); }
+}
+
+@keyframes text-shimmer {
+  0% { background-position: -100% 50%; }
+  100% { background-position: 200% 50%; }
 }
 
 .animate-bounce-iron { animation: iron-bounce 0.6s ease; }
@@ -129,26 +163,103 @@ body {
 .animate-slide-up { animation: iron-slide-up 0.4s ease both; }
 .animate-shake { animation: iron-shake 0.4s ease; }
 .animate-streak-fire { animation: iron-streak-fire 1.5s ease-in-out infinite; }
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 4s ease infinite;
+}
+.animate-border-glow { animation: border-glow 2s ease-in-out infinite; }
+.animate-text-shimmer {
+  background-size: 200% 100%;
+  animation: text-shimmer 3s ease infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 
 /* ─── XP Bar ────────────────────────────────────────────────────────────────── */
 .xp-bar {
   height: 8px;
   border-radius: 9999px;
-  background: linear-gradient(90deg, #FF6B35, #FFE66D);
+  background: linear-gradient(90deg, #FF6B35, #A855F7, #00F5D4);
+  background-size: 200% 100%;
+  animation: gradient-shift 3s ease infinite;
   transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* ─── Streak fire glow ────────────────────────────────────────────────────────── */
 .streak-fire {
-  text-shadow: 0 0 12px rgba(255, 107, 53, 0.8), 0 0 24px rgba(255, 107, 53, 0.4);
+  text-shadow: 0 0 16px rgba(255, 107, 53, 0.9), 0 0 32px rgba(255, 107, 53, 0.5);
 }
 
 /* ─── Card hover lift ────────────────────────────────────────────────────────── */
 @media (hover: hover) {
   .card-lift:hover {
-    transform: translateY(-2px);
-    transition: transform 0.2s ease;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    transition: all 0.25s ease;
   }
+}
+
+/* ─── Gradient text ──────────────────────────────────────────────────────────── */
+.text-gradient-fire {
+  background: linear-gradient(135deg, #FF6B35, #FFE66D);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-ocean {
+  background: linear-gradient(135deg, #00F5D4, #38BDF8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-cosmic {
+  background: linear-gradient(135deg, #A855F7, #FF6B9D);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-rainbow {
+  background: linear-gradient(90deg, #FF6B35, #FFE66D, #00F5D4, #A855F7, #FF6B9D);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 4s ease infinite;
+}
+
+/* ─── Glowing border effect ──────────────────────────────────────────────────── */
+.glow-border {
+  position: relative;
+}
+.glow-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, #FF6B35, #A855F7, #00F5D4);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.5;
+}
+
+/* ─── Input focus ring ───────────────────────────────────────────────────────── */
+input:focus, textarea:focus {
+  outline: none;
+  border-color: rgba(255,107,53,0.5) !important;
+  box-shadow: 0 0 0 3px rgba(255,107,53,0.1);
 }
 
 /* ─── Responsive container ────────────────────────────────────────────────────── */

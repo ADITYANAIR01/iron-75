@@ -371,6 +371,7 @@ export default function WeeklyWrapped({ visible, onDismiss, weekNumber, startDat
           {/* Close button */}
           <button
             onClick={onDismiss}
+            aria-label="Close weekly wrapped"
             className="absolute top-6 right-4 z-10 w-8 h-8 rounded-full flex items-center justify-center text-lg"
             style={{ background: 'rgba(0,0,0,0.5)' }}
           >

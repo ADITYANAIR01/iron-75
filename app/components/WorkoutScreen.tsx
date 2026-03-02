@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SESSIONS, getTodaySession, SessionSpec, ExerciseSpec } from '../lib/pplData';
-import { getToday, saveDailyLog, getOrCreateTodayLog } from '../lib/storage';
+import { SESSIONS, SessionSpec, ExerciseSpec } from '../lib/pplData';
+import { getToday, saveDailyLog, getOrCreateTodayLog, getDayOfWeek } from '../lib/storage';
+import { getSessionForDow, getAllSessionSpecs, getSessionById } from '../lib/customWorkouts';
+import WorkoutPlanner from './WorkoutPlanner';
 
 // ─── Set tracker type ────────────────────────────────────────────────────────
 interface SetState {
@@ -16,9 +18,6 @@ interface ExerciseState {
   notes: string;
   expanded: boolean;
 }
-
-// ─── Day-selector keys ────────────────────────────────────────────────────────
-const SESSION_ORDER = ['pushA', 'pullA', 'legsA', 'pushB', 'pullB', 'legsB', 'mobility'];
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 function loadWorkoutState(date: string, session: SessionSpec): Record<string, ExerciseState> {
@@ -72,9 +71,10 @@ function ExerciseCard({
       className="rounded-2xl overflow-hidden"
       style={{
         background: allDone
-          ? `linear-gradient(135deg, ${sessionColor}12 0%, rgba(13,13,26,0.95) 100%)`
-          : 'rgba(13,13,40,0.75)',
-        border: `1px solid ${allDone ? sessionColor + '55' : '#2a2a4a'}`,
+          ? `linear-gradient(135deg, ${sessionColor}12 0%, rgba(6,6,15,0.95) 100%)`
+          : 'rgba(12,12,30,0.8)',
+        border: `1px solid ${allDone ? sessionColor + '50' : 'rgba(255,255,255,0.06)'}`,
+        boxShadow: allDone ? `0 0 20px ${sessionColor}10` : 'none',
       }}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -95,7 +95,7 @@ function ExerciseCard({
         </div>
         <div className="flex gap-1 flex-shrink-0">
           {state.sets.map((s, i) => (
-            <div key={i} className="w-2.5 h-2.5 rounded-full" style={{ background: s.done ? sessionColor : '#2a2a4a' }} />
+            <div key={i} className="w-2.5 h-2.5 rounded-full transition-all" style={{ background: s.done ? sessionColor : '#141432', boxShadow: s.done ? `0 0 6px ${sessionColor}60` : 'none' }} />
           ))}
         </div>
         <motion.span style={{ color: '#64748b', fontSize: '11px', flexShrink: 0 }} animate={{ rotate: state.expanded ? 180 : 0 }} transition={{ duration: 0.2 }}>▼</motion.span>
@@ -128,8 +128,9 @@ function ExerciseCard({
                       className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 font-bold text-sm"
                       style={{
                         background: s.done ? sessionColor : 'rgba(255,255,255,0.04)',
-                        border: `2px solid ${s.done ? sessionColor : '#2a2a4a'}`,
-                        color: s.done ? '#0D0D1A' : '#64748b',
+                        border: `2px solid ${s.done ? sessionColor : 'rgba(255,255,255,0.08)'}`,
+                        color: s.done ? '#06060F' : '#64748b',
+                        boxShadow: s.done ? `0 0 12px ${sessionColor}30` : 'none',
                       }}
                       whileTap={{ scale: 0.85 }}
                     >
@@ -146,7 +147,7 @@ function ExerciseCard({
                       className="px-3 py-2 rounded-lg text-sm text-center"
                       style={{
                         background: 'rgba(255,255,255,0.04)',
-                        border: `1px solid ${s.done ? sessionColor + '55' : '#2a2a4a'}`,
+                        border: `1px solid ${s.done ? sessionColor + '40' : 'rgba(255,255,255,0.06)'}`,
                         color: '#e2e8f0',
                         width: '70px',
                       }}
@@ -162,7 +163,7 @@ function ExerciseCard({
                 value={state.notes}
                 onChange={(e) => onChange({ ...state, notes: e.target.value })}
                 className="mt-3 w-full px-3 py-2 rounded-lg text-xs"
-                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid #2a2a4a', color: '#e2e8f0' }}
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0' }}
               />
               <div className="mt-2 flex justify-between text-xs text-gray-500">
                 <span>{doneSets}/{exercise.sets} sets done</span>
@@ -177,25 +178,26 @@ function ExerciseCard({
 }
 
 // ─── Session selector pills ───────────────────────────────────────────────────
-function SessionPills({ current, onSelect }: { current: string; onSelect: (key: string) => void }) {
+function SessionPills({ current, onSelect, allSpecs }: { current: string; onSelect: (key: string) => void; allSpecs: SessionSpec[] }) {
   return (
     <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-      {SESSION_ORDER.map((key) => {
-        const s = SESSIONS[key];
-        const isActive = key === current;
+      {allSpecs.map((s) => {
+        const isActive = s.key === current;
+        const isCustom = s.key.startsWith('custom_');
         return (
           <motion.button
-            key={key}
-            onClick={() => onSelect(key)}
+            key={s.key}
+            onClick={() => onSelect(s.key)}
             className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold whitespace-nowrap"
             style={{
               background: isActive ? s.color : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${isActive ? s.color : '#2a2a4a'}`,
-              color: isActive ? '#0D0D1A' : '#64748b',
+              border: `1px solid ${isActive ? s.color : 'rgba(255,255,255,0.08)'}`,
+              color: isActive ? '#06060F' : '#64748b',
+              boxShadow: isActive ? `0 0 16px ${s.color}30` : 'none',
             }}
             whileTap={{ scale: 0.9 }}
           >
-            {s.emoji} {s.name}
+            {s.emoji} {s.name} {isCustom ? '✦' : ''}
           </motion.button>
         );
       })}
@@ -207,7 +209,7 @@ function SessionPills({ current, onSelect }: { current: string; onSelect: (key: 
 function WarmCoolSection({ title, items, color }: { title: string; items: string[]; color: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(13,13,40,0.7)', border: '1px solid #1a1a3a' }}>
+    <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(12,12,30,0.7)', border: '1px solid rgba(255,255,255,0.06)' }}>
       <button onClick={() => setOpen((p) => !p)} className="w-full flex items-center justify-between p-3 text-left">
         <span className="text-sm font-bold" style={{ color }}>{title}</span>
         <motion.span style={{ fontSize: '11px', color: '#64748b' }} animate={{ rotate: open ? 180 : 0 }}>▼</motion.span>
@@ -237,18 +239,40 @@ function WarmCoolSection({ title, items, color }: { title: string; items: string
 // ─── Main WorkoutScreen ───────────────────────────────────────────────────────
 export default function WorkoutScreen() {
   const today = getToday();
-  const todaySession = getTodaySession();
+  const todayDow = getDayOfWeek(today);
 
-  const [selectedSessionKey, setSelectedSessionKey] = useState(todaySession.key);
+  const [showPlanner, setShowPlanner] = useState(false);
+  const [allSpecs, setAllSpecs] = useState<SessionSpec[]>([]);
+  const [todaySessionKey, setTodaySessionKey] = useState('pushA');
+  const [selectedSessionKey, setSelectedSessionKey] = useState('pushA');
   const [exerciseStates, setExerciseStates] = useState<Record<string, ExerciseState>>({});
   const [sessionComplete, setSessionComplete] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  const session = SESSIONS[selectedSessionKey];
-
+  // Resolve today's session from custom assignments or PPL default
   useEffect(() => {
     setMounted(true);
-  }, []);
+    const todaySess = getSessionForDow(todayDow);
+    setTodaySessionKey(todaySess.key);
+    setSelectedSessionKey(todaySess.key);
+    setAllSpecs(getAllSessionSpecs());
+  }, [todayDow]);
+
+  // Refresh session list when planner is closed (in case user created new sessions)
+  useEffect(() => {
+    if (!showPlanner && mounted) {
+      const todaySess = getSessionForDow(todayDow);
+      setTodaySessionKey(todaySess.key);
+      setAllSpecs(getAllSessionSpecs());
+    }
+  }, [showPlanner, mounted, todayDow]);
+
+  // Resolve current session (handles both PPL keys and custom IDs)
+  const session: SessionSpec = (() => {
+    const found = getSessionById(selectedSessionKey);
+    if (found) return found;
+    return SESSIONS[selectedSessionKey] ?? SESSIONS['pushA'];
+  })();
 
   useEffect(() => {
     if (!mounted) return;
@@ -292,11 +316,25 @@ export default function WorkoutScreen() {
     );
   }
 
+  if (showPlanner) {
+    return <WorkoutPlanner onClose={() => setShowPlanner(false)} />;
+  }
+
   return (
     <div className="flex flex-col gap-4 px-4 pt-5 pb-24">
       <div>
-        <div className="text-xs uppercase tracking-widest mb-2" style={{ color: session.color, opacity: 0.8 }}>Select Session</div>
-        <SessionPills current={selectedSessionKey} onSelect={setSelectedSessionKey} />
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs uppercase tracking-widest" style={{ color: session.color, opacity: 0.8 }}>Select Session</div>
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setShowPlanner(true)}
+            className="text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1"
+            style={{ background: 'linear-gradient(135deg, #A855F720, #FF6B9D20)', border: '1px solid #A855F740', color: '#A855F7' }}
+          >
+            📋 Planner
+          </motion.button>
+        </div>
+        <SessionPills current={selectedSessionKey} onSelect={setSelectedSessionKey} allSpecs={allSpecs} />
       </div>
 
       <AnimatePresence mode="wait">
@@ -304,8 +342,9 @@ export default function WorkoutScreen() {
           key={session.key}
           className="rounded-3xl p-5 relative overflow-hidden"
           style={{
-            background: `linear-gradient(135deg, ${session.color}15 0%, #0D0D1A 100%)`,
-            border: `1px solid ${session.color}44`,
+            background: `linear-gradient(135deg, ${session.color}15 0%, #06060F 100%)`,
+            border: `1px solid ${session.color}35`,
+            boxShadow: `0 0 40px ${session.color}08`,
           }}
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -313,7 +352,7 @@ export default function WorkoutScreen() {
         >
           <div className="absolute right-4 top-4 text-7xl opacity-10">{session.emoji}</div>
           <div className="relative">
-            {selectedSessionKey === todaySession.key && (
+            {selectedSessionKey === todaySessionKey && (
               <div className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full mb-2" style={{ background: '#FF6B3533', color: '#FF6B35', border: '1px solid #FF6B3544' }}>
                 📅 Today&apos;s Session
               </div>
@@ -326,10 +365,10 @@ export default function WorkoutScreen() {
                 <span>{completedExercises}/{session.exercises.length} exercises</span>
                 <span style={{ color: session.color }}>{doneSets}/{totalSets} sets</span>
               </div>
-              <div className="h-2 rounded-full" style={{ background: '#1a1a3a' }}>
+              <div className="h-2 rounded-full" style={{ background: '#141432' }}>
                 <motion.div
                   className="h-2 rounded-full"
-                  style={{ background: session.color }}
+                  style={{ background: `linear-gradient(90deg, ${session.color}, ${session.color}99)`, boxShadow: `0 0 8px ${session.color}40` }}
                   animate={{ width: totalSets > 0 ? `${(doneSets / totalSets) * 100}%` : '0%' }}
                   transition={{ type: 'spring', stiffness: 80 }}
                 />
@@ -359,17 +398,17 @@ export default function WorkoutScreen() {
         </motion.div>
       </AnimatePresence>
 
-      <WarmCoolSection title="❄️ Cool-down" items={session.cooldown} color="#4ECDC4" />
+      <WarmCoolSection title="❄️ Cool-down" items={session.cooldown} color="#00F5D4" />
 
       {sessionComplete ? (
         <motion.div
           className="rounded-2xl p-5 text-center"
-          style={{ background: 'rgba(78,205,196,0.12)', border: '1px solid #4ECDC4' }}
+          style={{ background: 'linear-gradient(135deg, rgba(0,245,212,0.08), rgba(6,6,15,0.95))', border: '1px solid rgba(0,245,212,0.4)', boxShadow: '0 0 30px rgba(0,245,212,0.1)' }}
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
         >
           <div className="text-4xl mb-2">✅</div>
-          <p className="font-black text-lg" style={{ color: '#4ECDC4' }}>Session Complete!</p>
+          <p className="font-black text-lg" style={{ color: '#00F5D4' }}>Session Complete!</p>
           <p className="text-xs text-gray-400 mt-1">Gym workout marked done for today. 💪</p>
         </motion.div>
       ) : (
@@ -379,8 +418,8 @@ export default function WorkoutScreen() {
           className="w-full py-4 rounded-2xl font-black text-base"
           style={{
             background: `linear-gradient(135deg, ${session.color}, ${session.color}cc)`,
-            color: '#0D0D1A',
-            boxShadow: `0 4px 20px ${session.color}44`,
+            color: '#06060F',
+            boxShadow: `0 4px 24px ${session.color}40, 0 0 60px ${session.color}15`,
           }}
         >
           {doneSets >= Math.floor(totalSets * 0.8)

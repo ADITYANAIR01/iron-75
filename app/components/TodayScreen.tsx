@@ -8,231 +8,191 @@ import {
   checkAllTasksComplete,
   uploadProgressPhoto,
 } from '../lib/storage';
-import { initializeStreakOnLoad, completeTodayStreak, getDaysToWedding, isPastTenPM } from '../lib/streakLogic';
+import { initializeStreakOnLoad, completeTodayStreak, getDaysToGoal, isPastTenPM } from '../lib/streakLogic';
 import { DailyLog, AppState, MoodEmoji } from '../lib/types';
 import WaterBottle from './WaterBottle';
 import CelebrationOverlay from './CelebrationOverlay';
-import { getDailyTip } from '../lib/aiTips';
+import { getDailyTip, getMotivationalQuote, getTipCategory } from '../lib/aiTips';
 
 // ─── Mood config ───────────────────────────────────────────────────────────────
-const MOODS: { value: MoodEmoji; emoji: string; label: string }[] = [
-  { value: 'great', emoji: '😄', label: 'Great' },
-  { value: 'good', emoji: '🙂', label: 'Good' },
-  { value: 'meh', emoji: '😐', label: 'Meh' },
-  { value: 'bad', emoji: '😞', label: 'Bad' },
-  { value: 'terrible', emoji: '😩', label: 'Terrible' },
+const MOODS: { value: MoodEmoji; emoji: string; label: string; color: string }[] = [
+  { value: 'great', emoji: '😄', label: 'Great', color: '#00F5D4' },
+  { value: 'good', emoji: '🙂', label: 'Good', color: '#BAFF39' },
+  { value: 'meh', emoji: '😐', label: 'Meh', color: '#FFE66D' },
+  { value: 'bad', emoji: '😞', label: 'Bad', color: '#FF6B35' },
+  { value: 'terrible', emoji: '😩', label: 'Terrible', color: '#FF4757' },
 ];
 
-// ─── Completion status ring SVG ────────────────────────────────────────────────
-function StatusRing({ done, size = 28 }: { done: boolean; size?: number }) {
-  const r = (size - 4) / 2;
+// ─── Animated progress ring ───────────────────────────────────────────────────
+function ProgressRing({ progress, size = 64 }: { progress: number; size?: number }) {
+  const r = (size - 6) / 2;
   const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - progress);
+  const gradientId = `ring-${size}`;
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size / 2} cy={size / 2} r={r} stroke="#2a2a4a" strokeWidth="2.5" fill="none" />
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="progress-ring">
+      <defs>
+        <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FF6B35" />
+          <stop offset="50%" stopColor="#A855F7" />
+          <stop offset="100%" stopColor="#00F5D4" />
+        </linearGradient>
+      </defs>
+      <circle cx={size / 2} cy={size / 2} r={r} stroke="#141432" strokeWidth="4" fill="none" />
       <motion.circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        stroke={done ? '#4ECDC4' : '#FF6B35'}
-        strokeWidth="2.5"
-        fill="none"
-        strokeLinecap="round"
+        cx={size / 2} cy={size / 2} r={r}
+        stroke={`url(#${gradientId})`}
+        strokeWidth="4" fill="none" strokeLinecap="round"
         strokeDasharray={circ}
-        animate={{ strokeDashoffset: done ? 0 : circ }}
+        animate={{ strokeDashoffset: offset }}
         initial={{ strokeDashoffset: circ }}
-        transition={{ duration: 0.5, ease: 'easeOut' }}
+        transition={{ duration: 0.8, ease: 'easeOut' }}
         style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%' }}
       />
-      <AnimatePresence>
-        {done && (
-          <motion.text
-            x="50%"
-            y="50%"
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={size * 0.45}
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            exit={{ scale: 0 }}
-          >
-            ✓
-          </motion.text>
-        )}
-      </AnimatePresence>
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central"
+        fontSize={size * 0.28} fontWeight="900" fill="#F1F5F9">
+        {Math.round(progress * 100)}%
+      </text>
     </svg>
   );
 }
 
-// ─── Simple Binary Checkbox Card ─────────────────────────────────────────────
-interface SimpleCheckCardProps {
+// ─── Task Card with neon accent ─────────────────────────────────────────────
+interface TaskCardProps {
   icon: string;
   label: string;
   done: boolean;
-  onToggle: () => void;
+  accentColor: string;
+  onToggle?: () => void;
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  children?: React.ReactNode;
+  subtitle?: string;
 }
 
-function SimpleCheckCard({ icon, label, done, onToggle }: SimpleCheckCardProps) {
-  return (
-    <motion.button
-      layout
-      onClick={onToggle}
-      className="w-full flex items-center gap-3 p-4 rounded-2xl text-left"
-      style={{
-        background: done
-          ? 'linear-gradient(135deg, rgba(78,205,196,0.12) 0%, rgba(13,13,26,0.95) 100%)'
-          : 'rgba(13,13,40,0.8)',
-        border: `1px solid ${done ? '#4ECDC4' : '#2a2a4a'}`,
-      }}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 120, damping: 20 }}
-      whileTap={{ scale: 0.97 }}
-    >
-      <span className="text-2xl">{icon}</span>
-      <span
-        className="flex-1 font-semibold text-base text-left"
-        style={{
-          color: done ? '#4ECDC4' : '#e2e8f0',
-          textDecoration: done ? 'line-through' : 'none',
-          opacity: done ? 0.85 : 1,
-          transition: 'color 0.3s, text-decoration 0.3s',
-        }}
-      >
-        {label}
-      </span>
-      {/* Animated checkbox circle */}
-      <motion.div
-        className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-        animate={{
-          background: done ? '#4ECDC4' : 'transparent',
-          borderColor: done ? '#4ECDC4' : '#3a3a5a',
-          scale: done ? [1, 1.3, 1] : 1,
-        }}
-        transition={{ type: 'spring', stiffness: 400, damping: 20, scale: { duration: 0.3 } }}
-        style={{ border: '2px solid #3a3a5a' }}
-      >
-        <AnimatePresence>
-          {done && (
-            <motion.svg
-              width="14"
-              height="11"
-              viewBox="0 0 14 11"
-              initial={{ scale: 0, rotate: -15 }}
-              animate={{ scale: 1, rotate: 0 }}
-              exit={{ scale: 0, rotate: 15 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-            >
-              <motion.path
-                d="M1.5 5.5L5.5 9.5L12.5 1.5"
-                stroke="#0D0D1A"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
-              />
-            </motion.svg>
-          )}
-        </AnimatePresence>
-      </motion.div>
-    </motion.button>
-  );
-}
-
-// ─── Task card wrapper ─────────────────────────────────────────────────────────
-interface CardProps {
-  icon: string;
-  label: string;
-  done: boolean;
-  expanded: boolean;
-  onToggleExpand: () => void;
-  children: React.ReactNode;
-}
-
-function TaskCard({ icon, label, done, expanded, onToggleExpand, children }: CardProps) {
+function TaskCard({ icon, label, done, accentColor, onToggle, expandable, expanded, onToggleExpand, children, subtitle }: TaskCardProps) {
+  const handleClick = expandable ? onToggleExpand : onToggle;
   return (
     <motion.div
       layout
       className="rounded-2xl overflow-hidden"
       style={{
         background: done
-          ? 'linear-gradient(135deg, rgba(78,205,196,0.08) 0%, rgba(13,13,26,0.95) 100%)'
-          : 'rgba(13,13,40,0.8)',
-        border: `1px solid ${done ? '#4ECDC4' : '#2a2a4a'}`,
+          ? `linear-gradient(135deg, ${accentColor}12 0%, rgba(6,6,15,0.95) 100%)`
+          : 'rgba(12,12,30,0.8)',
+        border: `1px solid ${done ? accentColor + '40' : 'rgba(255,255,255,0.06)'}`,
+        boxShadow: done ? `0 0 20px ${accentColor}15` : 'none',
       }}
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+      transition={{ type: 'spring', stiffness: 140, damping: 20 }}
     >
-      {/* Card header — always visible */}
       <button
-        onClick={onToggleExpand}
+        onClick={handleClick}
         className="w-full flex items-center gap-3 p-4 text-left"
       >
-        <span className="text-2xl">{icon}</span>
-        <span
-          className="flex-1 font-semibold text-base"
-          style={{ color: done ? '#4ECDC4' : '#e2e8f0' }}
-        >
-          {label}
-        </span>
-        <StatusRing done={done} />
-        <motion.span
-          style={{ color: '#64748b', fontSize: '12px' }}
-          animate={{ rotate: expanded ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          ▼
-        </motion.span>
+        {/* Icon with glow bg */}
+        <div className="relative flex-shrink-0">
+          <motion.div
+            className="w-11 h-11 rounded-xl flex items-center justify-center text-xl"
+            style={{
+              background: done ? `${accentColor}20` : 'rgba(255,255,255,0.04)',
+              border: `1.5px solid ${done ? accentColor + '50' : 'rgba(255,255,255,0.08)'}`,
+            }}
+            animate={done ? { scale: [1, 1.1, 1] } : {}}
+            transition={{ duration: 0.3 }}
+          >
+            {icon}
+          </motion.div>
+          {done && (
+            <motion.div
+              className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center"
+              style={{ background: accentColor }}
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+            >
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="#06060F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </motion.div>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <span
+            className="font-bold text-sm leading-tight block"
+            style={{
+              color: done ? accentColor : '#F1F5F9',
+              textDecoration: done ? 'line-through' : 'none',
+              opacity: done ? 0.9 : 1,
+            }}
+          >
+            {label}
+          </span>
+          {subtitle && (
+            <span className="text-xs mt-0.5 block" style={{ color: '#64748B' }}>{subtitle}</span>
+          )}
+        </div>
+
+        {expandable && (
+          <motion.span
+            style={{ color: '#64748b', fontSize: '11px' }}
+            animate={{ rotate: expanded ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            ▼
+          </motion.span>
+        )}
       </button>
 
-      {/* Expandable content */}
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="content"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-4">{children}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {expandable && (
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              key="content"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: 'easeInOut' }}
+              className="overflow-hidden"
+            >
+              <div className="px-4 pb-4">{children}</div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </motion.div>
   );
 }
 
-// ─── Slider ────────────────────────────────────────────────────────────────────
+// ─── Slider with visual track ──────────────────────────────────────────────────
 function LabeledSlider({
-  label,
-  emoji,
-  value,
-  onChange,
-  color,
+  label, emoji, value, onChange, color,
 }: {
-  label: string;
-  emoji: string;
-  value: number;
-  onChange: (v: number) => void;
-  color: string;
+  label: string; emoji: string; value: number; onChange: (v: number) => void; color: string;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between text-xs text-gray-400">
-        <span>{emoji} {label}</span>
-        <span style={{ color, fontWeight: 700 }}>{value}/5</span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex justify-between text-xs">
+        <span style={{ color: '#94A3B8' }}>{emoji} {label}</span>
+        <div className="flex gap-1 items-center">
+          {[1, 2, 3, 4, 5].map((v) => (
+            <div
+              key={v}
+              className="w-2 h-2 rounded-full transition-all duration-200"
+              style={{
+                background: v <= value ? color : '#141432',
+                boxShadow: v <= value ? `0 0 6px ${color}60` : 'none',
+              }}
+            />
+          ))}
+          <span className="ml-1.5 font-bold" style={{ color }}>{value}/5</span>
+        </div>
       </div>
       <input
-        type="range"
-        min={1}
-        max={5}
-        value={value}
+        type="range" min={1} max={5} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full iron75-slider"
         style={{ accentColor: color }}
@@ -242,7 +202,7 @@ function LabeledSlider({
 }
 
 // ─── Main TodayScreen ──────────────────────────────────────────────────────────
-export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorkout?: () => void }) {
+export default function TodayScreen() {
   const [log, setLog] = useState<DailyLog | null>(null);
   const [appState, setAppState] = useState<AppState>({
     streak: 0, currentDay: 1, startDate: '', longestStreak: 0, totalRestarts: 0,
@@ -255,20 +215,15 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
   const [photoUploading, setPhotoUploading] = useState(false);
   const celebrationFiredRef = useRef(false);
 
-  // ── Hydrate from localStorage ──────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
     const state = initializeStreakOnLoad();
     setAppState(state);
-
     const todayLog = getOrCreateTodayLog();
     setLog(todayLog);
-
-    // If already celebrated today, don't show again
     celebrationFiredRef.current = todayLog.celebrationShown || false;
   }, []);
 
-  // ── Persist log whenever it changes ──────────────────────────────────────
   const updateLog = useCallback(
     (updater: (prev: DailyLog) => DailyLog) => {
       setLog((prev) => {
@@ -283,21 +238,18 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
     []
   );
 
-  // ── Celebration trigger ───────────────────────────────────────────────────
   useEffect(() => {
     if (!log || !mounted) return;
     if (log.allTasksComplete && !celebrationFiredRef.current) {
       celebrationFiredRef.current = true;
       setShowCelebration(true);
-      // Increment streak
       const newState = completeTodayStreak(appState);
       setAppState(newState);
-      // Mark celebration shown
       updateLog((prev) => ({ ...prev, celebrationShown: true }));
     }
-  }, [log?.allTasksComplete, mounted]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [log?.allTasksComplete, mounted]);
 
-  // ── 10 PM warning check ───────────────────────────────────────────────────
   useEffect(() => {
     const check = () => {
       if (isPastTenPM() && log && !log.allTasksComplete) {
@@ -311,56 +263,33 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
     return () => clearInterval(interval);
   }, [log]);
 
-  // ── Task handlers ─────────────────────────────────────────────────────────
-  const toggleGymWorkout = () => {
-    updateLog((p) => ({ ...p, gymWorkoutDone: !p.gymWorkoutDone }));
-  };
-
-  const toggleOutdoorWalk = () => {
-    updateLog((p) => ({ ...p, outdoorWalkDone: !p.outdoorWalkDone }));
-  };
-
+  const toggleGymWorkout = () => updateLog((p) => ({ ...p, gymWorkoutDone: !p.gymWorkoutDone }));
+  const toggleOutdoorWalk = () => updateLog((p) => ({ ...p, outdoorWalkDone: !p.outdoorWalkDone }));
   const addWater = () => {
     updateLog((p) => {
       const newLiters = Math.min(p.waterLiters + 0.5, 9.9);
       return { ...p, waterLiters: newLiters, waterGoalMet: newLiters >= 3.8 };
     });
   };
-
   const updateDiet = (slot: keyof DailyLog['dietSlots'], value: string) => {
-    updateLog((p) => ({
-      ...p,
-      dietSlots: { ...p.dietSlots, [slot]: value },
-    }));
+    updateLog((p) => ({ ...p, dietSlots: { ...p.dietSlots, [slot]: value } }));
   };
-
-  const setMood = (emoji: MoodEmoji) => {
-    updateLog((p) => ({ ...p, moodEmoji: emoji }));
-  };
-
+  const setMood = (emoji: MoodEmoji) => updateLog((p) => ({ ...p, moodEmoji: emoji }));
   const setSlider = (field: 'energyLevel' | 'motivationLevel' | 'sorenessLevel', value: number) => {
     updateLog((p) => ({ ...p, [field]: value }));
   };
-
-  const toggleReading = () => {
-    updateLog((p) => ({ ...p, readingDone: !p.readingDone }));
-  };
-
-  const setBookTitle = (title: string) => {
-    updateLog((p) => ({ ...p, readingBook: title }));
-  };
+  const toggleReading = () => updateLog((p) => ({ ...p, readingDone: !p.readingDone }));
+  const setBookTitle = (title: string) => updateLog((p) => ({ ...p, readingBook: title }));
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setPhotoUploading(true);
-    // Try Supabase Storage first, fall back to base64 local
     const cloudUrl = await uploadProgressPhoto(file, log?.date ?? '');
     if (cloudUrl) {
       updateLog((p) => ({ ...p, progressPhotoUrl: cloudUrl }));
       if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, cloudUrl);
     } else {
-      // Fallback: store as base64 locally
       const reader = new FileReader();
       reader.onload = (ev) => {
         const base64 = ev.target?.result as string;
@@ -372,20 +301,13 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
     setPhotoUploading(false);
   };
 
-  const toggleCard = (id: string) =>
-    setExpandedCard((prev) => (prev === id ? null : id));
+  const toggleCard = (id: string) => setExpandedCard((prev) => (prev === id ? null : id));
 
-  // ─── Guard: SSR ────────────────────────────────────────────────────────────
   if (!mounted || !log) {
     return (
       <div className="flex items-center justify-center h-64">
-        <motion.div
-          className="text-4xl"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-        >
-          🔥
-        </motion.div>
+        <motion.div className="text-5xl" animate={{ rotate: 360 }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}>🔥</motion.div>
       </div>
     );
   }
@@ -401,11 +323,12 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
-  const daysToWedding = getDaysToWedding();
+  const daysToGoal = getDaysToGoal();
+  const quote = getMotivationalQuote(appState.currentDay);
+  const tipCategory = getTipCategory(appState.currentDay);
 
   return (
-    <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
-      {/* Celebration overlay */}
+    <div className="flex flex-col gap-4 px-4 pt-5 pb-28">
       <CelebrationOverlay
         visible={showCelebration}
         onDismiss={() => setShowCelebration(false)}
@@ -417,311 +340,315 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
       <AnimatePresence>
         {showTenPMWarning && (
           <motion.div
-            className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
-            style={{ background: 'rgba(255,107,53,0.2)', border: '1px solid #FF6B35', color: '#FFE66D' }}
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
+            className="flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium"
+            style={{
+              background: 'linear-gradient(135deg, rgba(255,71,87,0.15), rgba(255,107,53,0.15))',
+              border: '1px solid rgba(255,71,87,0.4)',
+              color: '#FFE66D',
+            }}
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
           >
-            <span className="text-lg">⚠️</span>
-            <span>Only until 11:59 PM! Complete remaining tasks — {6 - completedCount} left.</span>
+            <motion.span className="text-xl" animate={{ scale: [1, 1.2, 1] }}
+              transition={{ duration: 1, repeat: Infinity }}>⚠️</motion.span>
+            <span>Clock is ticking! <span className="font-bold text-white">{6 - completedCount} tasks</span> remaining before midnight.</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── Streak Counter ─────────────────────────────────────────────────── */}
+      {/* ── Hero Card with Streak & Progress Ring ────────────────────────── */}
       <motion.div
         className="relative rounded-3xl p-6 overflow-hidden"
         style={{
-          background: 'linear-gradient(135deg, #1a0a00 0%, #0D0D1A 60%, #001a12 100%)',
-          border: '1px solid #FF6B3566',
+          background: 'linear-gradient(135deg, #1a0800 0%, #0a0020 35%, #06060F 65%, #001510 100%)',
+          border: '1px solid rgba(255,107,53,0.2)',
+          boxShadow: '0 0 40px rgba(255,107,53,0.08), 0 0 80px rgba(168,85,247,0.05)',
         }}
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 120 }}
       >
-        {/* Background glow */}
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            background: 'radial-gradient(circle at 30% 50%, #FF6B35 0%, transparent 60%)',
-          }}
-        />
+        {/* Animated orbs */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <motion.div
+            className="absolute w-32 h-32 rounded-full"
+            style={{ background: 'radial-gradient(circle, rgba(255,107,53,0.15) 0%, transparent 70%)', top: '-10%', left: '10%' }}
+            animate={{ x: [0, 20, 0], y: [0, 10, 0] }}
+            transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div
+            className="absolute w-24 h-24 rounded-full"
+            style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.12) 0%, transparent 70%)', bottom: '-5%', right: '15%' }}
+            animate={{ x: [0, -15, 0], y: [0, -10, 0] }}
+            transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
+          />
+        </div>
 
-        <div className="relative flex items-center justify-between">
-          <div>
-            <div className="text-xs uppercase tracking-widest" style={{ color: '#FF6B35', opacity: 0.8 }}>
+        <div className="relative flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <div className="text-[10px] uppercase tracking-[0.2em] font-bold mb-1" style={{ color: '#FF6B35' }}>
               Current Streak
             </div>
             <motion.div
               className="flex items-center gap-2 mt-1"
               key={appState.streak}
-              initial={{ scale: 1.2 }}
+              initial={{ scale: 1.15 }}
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 200 }}
             >
-              <span className="text-5xl">🔥</span>
+              <span className="text-4xl" style={{ animation: 'float 3s ease-in-out infinite' }}>🔥</span>
               <div>
-                <span className="text-6xl font-black" style={{ color: '#FF6B35' }}>
+                <span className="text-5xl font-black" style={{
+                  background: 'linear-gradient(135deg, #FF6B35, #FFE66D)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}>
                   {appState.streak}
                 </span>
-                <span className="text-2xl font-bold text-gray-400 ml-1">days</span>
+                <span className="text-lg font-bold ml-1" style={{ color: '#64748B' }}>days</span>
               </div>
             </motion.div>
-            <div className="mt-2 text-sm" style={{ color: '#4ECDC4' }}>
-              Day {appState.currentDay} of 75
+            <div className="flex items-center gap-3 mt-2">
+              <div className="flex items-center gap-1.5 text-sm" style={{ color: '#00F5D4' }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#00F5D4', boxShadow: '0 0 6px #00F5D4' }} />
+                Day {appState.currentDay} of 75
+              </div>
+              <div className="text-xs" style={{ color: '#64748B' }}>|</div>
+              <div className="text-xs" style={{ color: '#A855F7' }}>
+                Best: {appState.longestStreak}🏆
+              </div>
             </div>
           </div>
 
-          <div className="text-right">
-            <div className="text-xs text-gray-500 mb-1">{dateStr}</div>
-            {daysToWedding > 0 && (
-              <div
-                className="text-xs px-2 py-1 rounded-lg"
-                style={{ background: 'rgba(255,230,109,0.15)', color: '#FFE66D', border: '1px solid rgba(255,230,109,0.3)' }}
-              >
-                💒 {daysToWedding}d to wedding
-              </div>
-            )}
-            <div className="mt-2 text-xs text-gray-500">
-              Best: {appState.longestStreak} days
-            </div>
+          <div className="flex flex-col items-center gap-2">
+            <ProgressRing progress={completedCount / 6} />
+            <span className="text-[10px] font-bold" style={{ color: completedCount === 6 ? '#00F5D4' : '#64748B' }}>
+              {completedCount}/6 done
+            </span>
           </div>
         </div>
 
-        {/* Progress bar: tasks done today */}
-        <div className="mt-4">
-          <div className="flex justify-between text-xs text-gray-500 mb-1">
-            <span>Today&apos;s progress</span>
-            <span style={{ color: completedCount === 6 ? '#4ECDC4' : '#FF6B35' }}>
-              {completedCount}/6 tasks
-            </span>
-          </div>
-          <div className="h-2 rounded-full" style={{ background: '#1a1a3a' }}>
+        {/* Date & goal countdown */}
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-xs" style={{ color: '#64748B' }}>{dateStr}</span>
+          {daysToGoal > 0 && (
             <motion.div
-              className="h-2 rounded-full"
+              className="text-[10px] px-2.5 py-1 rounded-full font-bold"
+              style={{
+                background: 'linear-gradient(135deg, rgba(255,230,109,0.15), rgba(255,107,53,0.1))',
+                color: '#FFE66D',
+                border: '1px solid rgba(255,230,109,0.25)',
+              }}
+              animate={{ scale: [1, 1.02, 1] }}
+              transition={{ duration: 3, repeat: Infinity }}
+            >
+              🎯 {daysToGoal}d to goal
+            </motion.div>
+          )}
+        </div>
+
+        {/* Animated progress bar */}
+        <div className="mt-3">
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#141432' }}>
+            <motion.div
+              className="h-full rounded-full"
               style={{
                 background: completedCount === 6
-                  ? 'linear-gradient(90deg, #4ECDC4, #2EA89E)'
-                  : 'linear-gradient(90deg, #FF6B35, #FFE66D)',
+                  ? 'linear-gradient(90deg, #00F5D4, #38BDF8)'
+                  : 'linear-gradient(90deg, #FF6B35, #A855F7, #FFE66D)',
+                backgroundSize: '200% 100%',
               }}
-              animate={{ width: `${(completedCount / 6) * 100}%` }}
-              transition={{ type: 'spring', stiffness: 80, damping: 15 }}
+              animate={{
+                width: `${(completedCount / 6) * 100}%`,
+              }}
+              transition={{
+                width: { type: 'spring', stiffness: 80, damping: 15 },
+              }}
             />
           </div>
         </div>
       </motion.div>
 
-      {/* ── 6 Required Task Cards ─────────────────────────────────────────── */}
-
-      {/* 1. Gym Workout — single-tap binary checkbox */}
-      <SimpleCheckCard
-        icon="🏋️"
-        label="Gym Workout (PPL Session)"
-        done={log.gymWorkoutDone}
-        onToggle={toggleGymWorkout}
-      />
-
-      {/* 2. Outdoor Walk — single-tap binary checkbox */}
-      <SimpleCheckCard
-        icon="🚶"
-        label="Outdoor Walk / College Walk"
-        done={log.outdoorWalkDone}
-        onToggle={toggleOutdoorWalk}
-      />
-
-      {/* 3. Water */}
-      <TaskCard
-        icon="💧"
-        label={
-          log.waterGoalMet
-            ? `Water Intake — ✅ ${log.waterLiters.toFixed(1)}L`
-            : `Water Intake — ${log.waterLiters.toFixed(1)}L / 3.8L`
-        }
-        done={log.waterGoalMet}
-        expanded={expandedCard === 'water'}
-        onToggleExpand={() => toggleCard('water')}
+      {/* ── Motivational Quote ────────────────────────────────────────────── */}
+      <motion.div
+        className="rounded-xl px-4 py-3 text-center"
+        style={{
+          background: 'linear-gradient(135deg, rgba(168,85,247,0.06), rgba(255,107,53,0.04))',
+          border: '1px solid rgba(168,85,247,0.15)',
+        }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.3 }}
       >
-        <div className="flex flex-col items-center gap-2 py-4">
-          <WaterBottle liters={log.waterLiters} onAdd={addWater} />
-        </div>
-      </TaskCard>
+        <p className="text-xs italic leading-relaxed" style={{ color: '#94A3B8' }}>
+          &ldquo;{quote.quote}&rdquo;
+        </p>
+        <p className="text-[10px] mt-1 font-semibold" style={{ color: '#A855F7' }}>— {quote.author}</p>
+      </motion.div>
 
-      {/* 4. Diet Diary */}
-      <TaskCard
-        icon="🥗"
-        label="Diet Diary (4 meal slots)"
-        done={
-          log.dietSlots.breakfast !== '' ||
-          log.dietSlots.lunch !== '' ||
-          log.dietSlots.dinner !== '' ||
-          log.dietSlots.snacks !== ''
-        }
-        expanded={expandedCard === 'diet'}
-        onToggleExpand={() => toggleCard('diet')}
-      >
-        <div className="flex flex-col gap-2">
-          {(
-            [
-              { key: 'breakfast', icon: '🌅', placeholder: 'What did you eat for breakfast?' },
-              { key: 'lunch', icon: '☀️', placeholder: 'Lunch?' },
-              { key: 'dinner', icon: '🌙', placeholder: 'Dinner?' },
-              { key: 'snacks', icon: '🍎', placeholder: 'Snacks / pre-workout?' },
-            ] as const
-          ).map(({ key, icon, placeholder }) => (
-            <div key={key} className="flex items-center gap-2">
-              <span className="text-lg">{icon}</span>
-              <input
-                type="text"
-                placeholder={placeholder}
-                value={log.dietSlots[key]}
-                onChange={(e) => updateDiet(key, e.target.value)}
-                className="flex-1 px-3 py-2 rounded-lg text-sm bg-transparent outline-none"
-                style={{
-                  background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid #2a2a4a',
-                  color: '#e2e8f0',
-                }}
-              />
-            </div>
-          ))}
-        </div>
-      </TaskCard>
+      {/* ── Task Cards ────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3">
+        <TaskCard
+          icon="🏋️" label="Gym Workout (PPL Session)" done={log.gymWorkoutDone}
+          accentColor="#FF6B35" onToggle={toggleGymWorkout}
+          subtitle={log.gymWorkoutDone ? 'Completed — great work!' : 'Tap to mark done'}
+        />
 
-      {/* 5. Mood & Energy */}
-      <TaskCard
-        icon="😊"
-        label={log.moodEmoji ? `Mood: ${MOODS.find((m) => m.value === log.moodEmoji)?.emoji ?? ''} ${log.moodEmoji}` : 'Mood & Energy Log'}
-        done={log.moodEmoji !== ''}
-        expanded={expandedCard === 'mood'}
-        onToggleExpand={() => toggleCard('mood')}
-      >
-        <div className="flex flex-col gap-4">
-          {/* Emoji picker */}
-          <div>
-            <p className="text-xs text-gray-400 mb-2">How are you feeling today?</p>
-            <div className="flex gap-2 justify-center">
-              {MOODS.map((m) => (
-                <motion.button
-                  key={m.value}
-                  onClick={() => setMood(m.value)}
-                  whileTap={{ scale: 0.85 }}
-                  className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl"
+        <TaskCard
+          icon="🚶" label="Outdoor Walk / Activity" done={log.outdoorWalkDone}
+          accentColor="#A855F7" onToggle={toggleOutdoorWalk}
+          subtitle={log.outdoorWalkDone ? 'Walk done — fresh air!' : '45 min minimum'}
+        />
+
+        <TaskCard
+          icon="💧" label={log.waterGoalMet ? `Water — ✅ ${log.waterLiters.toFixed(1)}L` : `Water — ${log.waterLiters.toFixed(1)}L / 3.8L`}
+          done={log.waterGoalMet} accentColor="#00F5D4"
+          expandable expanded={expandedCard === 'water'}
+          onToggleExpand={() => toggleCard('water')}
+        >
+          <div className="flex flex-col items-center gap-2 py-4">
+            <WaterBottle liters={log.waterLiters} onAdd={addWater} />
+          </div>
+        </TaskCard>
+
+        <TaskCard
+          icon="🥗" label="Diet Diary" done={
+            log.dietSlots.breakfast !== '' || log.dietSlots.lunch !== '' ||
+            log.dietSlots.dinner !== '' || log.dietSlots.snacks !== ''
+          }
+          accentColor="#FFE66D"
+          expandable expanded={expandedCard === 'diet'}
+          onToggleExpand={() => toggleCard('diet')}
+          subtitle="Log your 4 meals"
+        >
+          <div className="flex flex-col gap-2.5">
+            {([
+              { key: 'breakfast', icon: '🌅', placeholder: 'Breakfast — e.g., Oats + banana' },
+              { key: 'lunch', icon: '☀️', placeholder: 'Lunch — e.g., Chicken + rice' },
+              { key: 'dinner', icon: '🌙', placeholder: 'Dinner — e.g., Dal + roti' },
+              { key: 'snacks', icon: '🍎', placeholder: 'Snacks — e.g., Protein shake' },
+            ] as const).map(({ key, icon, placeholder }) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="text-lg w-7 text-center">{icon}</span>
+                <input
+                  type="text" placeholder={placeholder}
+                  value={log.dietSlots[key]}
+                  onChange={(e) => updateDiet(key, e.target.value)}
+                  className="flex-1 px-3 py-2.5 rounded-xl text-sm bg-transparent outline-none transition-all"
                   style={{
-                    background: log.moodEmoji === m.value ? 'rgba(78,205,196,0.25)' : 'rgba(255,255,255,0.04)',
-                    border: `2px solid ${log.moodEmoji === m.value ? '#4ECDC4' : 'transparent'}`,
-                    transition: 'all 0.2s',
+                    background: log.dietSlots[key] ? 'rgba(255,230,109,0.05)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${log.dietSlots[key] ? 'rgba(255,230,109,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                    color: '#F1F5F9',
                   }}
-                >
-                  <span className="text-3xl">{m.emoji}</span>
-                  <span className="text-xs text-gray-400">{m.label}</span>
-                </motion.button>
-              ))}
+                />
+                {log.dietSlots[key] && (
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-sm">✅</motion.span>
+                )}
+              </div>
+            ))}
+          </div>
+        </TaskCard>
+
+        <TaskCard
+          icon="😊" label={log.moodEmoji ? `Mood: ${MOODS.find(m => m.value === log.moodEmoji)?.emoji ?? ''} ${log.moodEmoji}` : 'Mood & Energy Log'}
+          done={log.moodEmoji !== ''} accentColor="#FF6B9D"
+          expandable expanded={expandedCard === 'mood'}
+          onToggleExpand={() => toggleCard('mood')}
+          subtitle="How are you feeling today?"
+        >
+          <div className="flex flex-col gap-5">
+            {/* Mood selector */}
+            <div className="flex gap-2 justify-center">
+              {MOODS.map((m) => {
+                const isSelected = log.moodEmoji === m.value;
+                return (
+                  <motion.button
+                    key={m.value}
+                    onClick={() => setMood(m.value)}
+                    whileTap={{ scale: 0.85 }}
+                    className="flex flex-col items-center gap-1 px-3 py-2.5 rounded-2xl transition-all"
+                    style={{
+                      background: isSelected ? `${m.color}20` : 'rgba(255,255,255,0.03)',
+                      border: `2px solid ${isSelected ? m.color : 'transparent'}`,
+                      boxShadow: isSelected ? `0 0 16px ${m.color}25` : 'none',
+                    }}
+                  >
+                    <motion.span className="text-3xl" animate={isSelected ? { scale: [1, 1.2, 1] } : {}}>{m.emoji}</motion.span>
+                    <span className="text-[10px] font-semibold" style={{ color: isSelected ? m.color : '#64748B' }}>{m.label}</span>
+                  </motion.button>
+                );
+              })}
+            </div>
+
+            {/* Sliders */}
+            <div className="flex flex-col gap-3">
+              <LabeledSlider label="Energy" emoji="⚡" value={log.energyLevel} onChange={(v) => setSlider('energyLevel', v)} color="#FF6B35" />
+              <LabeledSlider label="Motivation" emoji="🔥" value={log.motivationLevel} onChange={(v) => setSlider('motivationLevel', v)} color="#A855F7" />
+              <LabeledSlider label="Soreness" emoji="💪" value={log.sorenessLevel} onChange={(v) => setSlider('sorenessLevel', v)} color="#FF4757" />
             </div>
           </div>
+        </TaskCard>
 
-          {/* Sliders */}
+        <TaskCard
+          icon="📖" label="10 Pages Read" done={log.readingDone}
+          accentColor="#38BDF8"
+          expandable expanded={expandedCard === 'reading'}
+          onToggleExpand={() => toggleCard('reading')}
+          subtitle={log.readingDone ? 'Knowledge gained!' : 'Non-fiction, 10 pages minimum'}
+        >
           <div className="flex flex-col gap-3">
-            <LabeledSlider
-              label="Energy"
-              emoji="⚡"
-              value={log.energyLevel}
-              onChange={(v) => setSlider('energyLevel', v)}
-              color="#FF6B35"
-            />
-            <LabeledSlider
-              label="Motivation"
-              emoji="🔥"
-              value={log.motivationLevel}
-              onChange={(v) => setSlider('motivationLevel', v)}
-              color="#4ECDC4"
-            />
-            <LabeledSlider
-              label="Soreness"
-              emoji="💪"
-              value={log.sorenessLevel}
-              onChange={(v) => setSlider('sorenessLevel', v)}
-              color="#FF6B6B"
-            />
-          </div>
-        </div>
-      </TaskCard>
-
-      {/* 6. Reading */}
-      <TaskCard
-        icon="📖"
-        label="10 Pages Read"
-        done={log.readingDone}
-        expanded={expandedCard === 'reading'}
-        onToggleExpand={() => toggleCard('reading')}
-      >
-        <div className="flex flex-col gap-3">
-          <p className="text-sm text-gray-400">Read at least 10 pages of a non-fiction book.</p>
-          <div className="flex items-center gap-3">
             <input
-              type="text"
-              placeholder="Book title (optional)"
+              type="text" placeholder="What are you reading? (optional)"
               value={log.readingBook}
               onChange={(e) => setBookTitle(e.target.value)}
-              className="flex-1 px-3 py-2 rounded-lg text-sm"
-              style={{
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid #2a2a4a',
-                color: '#e2e8f0',
-              }}
+              className="px-3 py-2.5 rounded-xl text-sm outline-none"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#F1F5F9' }}
             />
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={toggleReading}
+              className="w-full py-3 rounded-xl font-bold text-sm"
+              style={{
+                background: log.readingDone
+                  ? 'linear-gradient(135deg, rgba(56,189,248,0.15), rgba(0,245,212,0.1))'
+                  : 'linear-gradient(135deg, rgba(56,189,248,0.1), rgba(56,189,248,0.05))',
+                border: `1px solid ${log.readingDone ? '#38BDF8' : 'rgba(56,189,248,0.3)'}`,
+                color: log.readingDone ? '#38BDF8' : '#94A3B8',
+              }}
+            >
+              {log.readingDone ? '✅ 10 Pages Done!' : '📚 Mark as Read'}
+            </motion.button>
           </div>
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={toggleReading}
-            className="w-full py-3 rounded-xl font-bold text-sm"
-            style={{
-              background: log.readingDone ? 'rgba(78,205,196,0.2)' : 'rgba(255,107,53,0.2)',
-              border: `1px solid ${log.readingDone ? '#4ECDC4' : '#FF6B35'}`,
-              color: log.readingDone ? '#4ECDC4' : '#FF6B35',
-            }}
-          >
-            {log.readingDone ? '✅ 10 Pages Done!' : '⬜ Mark as Read'}
-          </motion.button>
-        </div>
-      </TaskCard>
+        </TaskCard>
+      </div>
 
-      {/* ── Optional: Progress Photo ─────────────────────────────────────── */}
+      {/* ── Progress Photo (Optional) ─────────────────────────────────────── */}
       <motion.div
-        layout
         className="rounded-2xl overflow-hidden"
         style={{
-          background: 'rgba(13,13,30,0.6)',
-          border: '1.5px dashed #3a3a5a',
+          background: 'rgba(12,12,30,0.6)',
+          border: '1.5px dashed rgba(255,255,255,0.08)',
         }}
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 120, damping: 20 }}
       >
         <button
           onClick={() => toggleCard('photo')}
           className="w-full flex items-center gap-3 p-4 text-left"
         >
-          <span className="text-2xl">📷</span>
-          <span className="flex-1 font-semibold text-base" style={{ color: '#888' }}>
-            Progress Photo
-          </span>
-          <span
-            className="text-xs px-2 py-0.5 rounded-full font-semibold"
-            style={{ background: 'rgba(255,255,255,0.07)', color: '#64748b', border: '1px solid #3a3a5a' }}
-          >
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl"
+            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            📷
+          </div>
+          <span className="flex-1 font-bold text-sm" style={{ color: '#64748B' }}>Progress Photo</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+            style={{ background: 'rgba(255,255,255,0.05)', color: '#64748b', border: '1px solid rgba(255,255,255,0.08)' }}>
             optional
           </span>
-          {log.progressPhotoUrl && (
-            <span className="text-base">✅</span>
-          )}
-          <motion.span
-            style={{ color: '#64748b', fontSize: '12px' }}
-            animate={{ rotate: expandedCard === 'photo' ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            ▼
-          </motion.span>
+          {log.progressPhotoUrl && <span className="text-sm">✅</span>}
+          <motion.span style={{ color: '#64748b', fontSize: '11px' }}
+            animate={{ rotate: expandedCard === 'photo' ? 180 : 0 }}>▼</motion.span>
         </button>
 
         <AnimatePresence initial={false}>
@@ -731,49 +658,38 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25, ease: 'easeInOut' }}
               className="overflow-hidden"
             >
               <div className="px-4 pb-4 flex flex-col gap-3">
                 {log.progressPhotoUrl ? (
-                  <div className="flex flex-col items-center gap-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={log.progressPhotoUrl}
-                      alt="Today's progress"
-                      className="w-32 h-40 object-cover rounded-xl"
-                      style={{ border: '2px solid #4ECDC4' }}
-                    />
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="relative rounded-2xl overflow-hidden" style={{ border: '2px solid #00F5D4' }}>
+                      <img src={log.progressPhotoUrl} alt="Today&apos;s progress" className="w-32 h-40 object-cover" />
+                      <div className="absolute bottom-0 inset-x-0 py-1 text-center text-[10px] font-bold"
+                        style={{ background: 'rgba(0,0,0,0.6)', color: '#00F5D4' }}>
+                        Day {appState.currentDay}
+                      </div>
+                    </div>
+                    <motion.button whileTap={{ scale: 0.95 }}
                       onClick={() => updateLog((p) => ({ ...p, progressPhotoUrl: '' }))}
-                      className="text-xs text-red-400 underline"
-                    >
+                      className="text-xs text-red-400 underline">
                       Remove photo
                     </motion.button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-3 py-2">
-                    <p className="text-sm text-gray-500 text-center">
-                      Upload your daily progress photo. Stored to Supabase cloud.
+                  <div className="flex flex-col items-center gap-3 py-3">
+                    <p className="text-xs text-center" style={{ color: '#64748B' }}>
+                      Snap your daily transformation pic — stored to Supabase cloud
                     </p>
-                    <label
-                      className="flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm cursor-pointer"
+                    <label className="flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm cursor-pointer"
                       style={{
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px dashed #3a3a5a',
-                        color: photoUploading ? '#4ECDC4' : '#64748b',
-                      }}
-                    >
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1.5px dashed rgba(255,255,255,0.1)',
+                        color: photoUploading ? '#00F5D4' : '#64748b',
+                      }}>
                       <span>{photoUploading ? '⏳ Uploading...' : '📷 Upload Photo'}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={handlePhotoUpload}
-                        className="hidden"
-                        disabled={photoUploading}
-                      />
+                      <input type="file" accept="image/*" capture="environment"
+                        onChange={handlePhotoUpload} className="hidden" disabled={photoUploading} />
                     </label>
                   </div>
                 )}
@@ -783,40 +699,50 @@ export default function TodayScreen({ onNavigateToWorkout }: { onNavigateToWorko
         </AnimatePresence>
       </motion.div>
 
-      {/* ── Gemini Daily Tip Card ──────────────────────────────────────────── */}
+      {/* ── Smart AI Tip Card ─────────────────────────────────────────────── */}
       <AnimatePresence>
         {!tipDismissed && (
           <motion.div
-            className="rounded-2xl p-4"
+            className="rounded-2xl p-4 relative overflow-hidden"
             style={{
-              background: 'rgba(78,205,196,0.07)',
-              border: '1px solid #4ECDC4',
+              background: `linear-gradient(135deg, ${tipCategory.color}08, rgba(6,6,15,0.9))`,
+              border: `1px solid ${tipCategory.color}30`,
             }}
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, height: 0 }}
           >
-            <div className="flex items-start justify-between gap-2">
+            {/* Subtle glow */}
+            <div className="absolute top-0 right-0 w-20 h-20 rounded-full opacity-20 pointer-events-none"
+              style={{ background: `radial-gradient(circle, ${tipCategory.color}, transparent)` }} />
+            
+            <div className="relative flex items-start justify-between gap-2">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-lg">🤖</span>
-                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: '#4ECDC4' }}>
-                  AI Coach Tip — Day {appState.currentDay}
-                </span>
+                <motion.span className="text-lg" animate={{ rotate: [0, 10, -10, 0] }}
+                  transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}>🤖</motion.span>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.15em] block" style={{ color: tipCategory.color }}>
+                    {tipCategory.icon} AI Coach · {tipCategory.category}
+                  </span>
+                  <span className="text-[10px]" style={{ color: '#64748B' }}>Day {appState.currentDay} insight</span>
+                </div>
               </div>
-              <button
-                onClick={() => setTipDismissed(true)}
-                className="text-gray-500 text-lg leading-none"
-              >
-                ✕
-              </button>
+              <button onClick={() => setTipDismissed(true)} aria-label="Dismiss tip" className="text-gray-600 hover:text-gray-400 text-lg leading-none p-1">✕</button>
             </div>
-            <p className="text-sm leading-relaxed text-gray-300">
-              {getDailyTip(appState.currentDay)}
+            <p className="text-sm leading-relaxed" style={{ color: '#CBD5E1' }}>
+              {getDailyTip(appState.currentDay, {
+                streak: appState.streak,
+                waterLiters: log.waterLiters,
+                energyLevel: log.energyLevel,
+                sorenessLevel: log.sorenessLevel,
+                moodEmoji: log.moodEmoji,
+                gymDone: log.gymWorkoutDone,
+                walkDone: log.outdoorWalkDone,
+              })}
             </p>
           </motion.div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
 import { getAppState, saveAppState, getToday, saveProfileName } from '../lib/storage';
 import { AppState } from '../lib/types';
 import { useAuth } from './AuthProvider';
@@ -11,6 +11,7 @@ export default function SettingsScreen() {
   const [state, setState] = useState<AppState | null>(null);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [name, setName] = useState('');
+  const [toast, setToast] = useState('');
 
   useEffect(() => {
     setState(getAppState());
@@ -21,6 +22,13 @@ export default function SettingsScreen() {
   const handleNameSave = () => {
     saveProfileName(name);
   };
+
+  // Save name on unmount (in case user navigates away without blur)
+  const nameRef = useRef(name);
+  nameRef.current = name;
+  useEffect(() => {
+    return () => { saveProfileName(nameRef.current); };
+  }, []);
 
   const handleRestartChallenge = () => {
     if (!state) return;
@@ -34,19 +42,20 @@ export default function SettingsScreen() {
     saveAppState(newState);
     setState(newState);
     setShowConfirmReset(false);
-    alert('Challenge restarted. Day 1 begins today! 🔥');
+    setToast('Challenge restarted. Day 1 begins today! 🔥');
+    setTimeout(() => setToast(''), 3000);
   };
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl font-black text-white">Settings</h1>
+        <h1 className="text-2xl font-black" style={{ background: 'linear-gradient(135deg, #F1F5F9, #94A3B8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Settings</h1>
       </motion.div>
 
       {/* Profile section */}
       <motion.div
         className="rounded-2xl p-5"
-        style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+        style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
@@ -61,8 +70,8 @@ export default function SettingsScreen() {
             onBlur={handleNameSave}
             className="px-3 py-2 rounded-lg text-sm"
             style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid #2a2a4a',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
               color: '#e2e8f0',
             }}
           />
@@ -74,7 +83,7 @@ export default function SettingsScreen() {
       {state && (
         <motion.div
           className="rounded-2xl p-5"
-          style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+          style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
@@ -84,13 +93,13 @@ export default function SettingsScreen() {
             {[
               { label: 'Current Day', value: state.currentDay, color: '#FF6B35' },
               { label: 'Current Streak', value: `${state.streak} 🔥`, color: '#FF6B35' },
-              { label: 'Longest Streak', value: state.longestStreak, color: '#4ECDC4' },
+              { label: 'Longest Streak', value: state.longestStreak, color: '#00F5D4' },
               { label: 'Total Restarts', value: state.totalRestarts, color: '#FFE66D' },
             ].map((item) => (
               <div
                 key={item.label}
                 className="rounded-xl p-3 text-center"
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid #1a1a3a' }}
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
               >
                 <div className="text-2xl font-black" style={{ color: item.color }}>
                   {item.value}
@@ -108,7 +117,7 @@ export default function SettingsScreen() {
       {/* Notifications placeholder */}
       <motion.div
         className="rounded-2xl p-5"
-        style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+        style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
@@ -121,7 +130,7 @@ export default function SettingsScreen() {
           </div>
           <div
             className="px-3 py-1 rounded-full text-xs"
-            style={{ background: 'rgba(255,107,53,0.15)', color: '#FF6B35', border: '1px solid #FF6B3555' }}
+              style={{ background: 'rgba(255,107,53,0.1)', color: '#FF6B35', border: '1px solid rgba(255,107,53,0.25)' }}
           >
             Pending
           </div>
@@ -181,7 +190,7 @@ export default function SettingsScreen() {
       {/* Account section */}
       <motion.div
         className="rounded-2xl p-5"
-        style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+        style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.22 }}
@@ -191,11 +200,11 @@ export default function SettingsScreen() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-300">Signed in as</p>
-              <p className="text-xs mt-0.5" style={{ color: '#4ECDC4' }}>{user?.email ?? 'Unknown'}</p>
+              <p className="text-xs mt-0.5" style={{ color: '#00F5D4' }}>{user?.email ?? 'Unknown'}</p>
             </div>
             <div
               className="px-3 py-1 rounded-full text-xs font-semibold"
-              style={{ background: 'rgba(78,205,196,0.15)', color: '#4ECDC4', border: '1px solid #4ECDC455' }}
+              style={{ background: 'rgba(0,245,212,0.1)', color: '#00F5D4', border: '1px solid rgba(0,245,212,0.3)' }}
             >
               Supabase
             </div>
@@ -207,7 +216,7 @@ export default function SettingsScreen() {
             whileTap={{ scale: 0.95 }}
             onClick={signOut}
             className="w-full py-3 rounded-xl text-sm font-bold"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #2a2a4a', color: '#e2e8f0' }}
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0' }}
           >
             🚪 Sign Out
           </motion.button>
@@ -217,25 +226,40 @@ export default function SettingsScreen() {
       {/* About */}
       <motion.div
         className="rounded-2xl p-5 text-center"
-        style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+        style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
       >
         <p className="text-2xl mb-2">🔥</p>
-        <p className="font-black text-lg text-white">IRON75</p>
-        <p className="text-xs text-gray-500 mt-1">v0.2.0 — Supabase Cloud Sync</p>
+        <p className="font-black text-lg" style={{ background: 'linear-gradient(135deg, #FF6B35, #FFE66D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>IRON75</p>
+        <p className="text-xs text-gray-500 mt-1">v0.3.0 — Neon Dark Redesign</p>
         <p className="text-xs text-gray-500">Next.js · TypeScript · Tailwind · Supabase · Framer Motion</p>
         <a
           href="https://github.com"
           className="text-xs mt-2 block underline"
-          style={{ color: '#4ECDC4' }}
+          style={{ color: '#00F5D4' }}
           target="_blank"
           rel="noopener noreferrer"
         >
           GitHub →
         </a>
       </motion.div>
+
+      {/* Toast notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-bold text-center"
+            style={{ background: '#FF6B35', color: '#06060F', boxShadow: '0 4px 20px rgba(255,107,53,0.4)' }}
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

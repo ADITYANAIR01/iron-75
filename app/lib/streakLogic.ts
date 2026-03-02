@@ -21,8 +21,8 @@ export function initializeStreakOnLoad(): AppState {
   const yesterday = getYesterday();
 
   // First-ever launch: set start date
-  if (!localStorage.getItem('iron75_start_date')) {
-    state.startDate = today;
+  if (!state.startDate || state.startDate === getToday() && state.currentDay <= 1 && state.streak === 0) {
+    state.startDate = getToday();
     saveAppState(state);
     return state;
   }
@@ -74,12 +74,13 @@ export function completeTodayStreak(state: AppState): AppState {
   return updated;
 }
 
-/** Days remaining until sister's wedding (May 31 2026) */
-export function getDaysToWedding(): number {
-  const wedding = new Date('2026-05-31T00:00:00');
+/** Days remaining until target date (configurable via localStorage 'iron75_goal_date', defaults to 90 days from start) */
+export function getDaysToGoal(): number {
+  const raw = typeof window !== 'undefined' ? localStorage.getItem('iron75_goal_date') : null;
+  const target = raw ? new Date(raw + 'T00:00:00') : (() => { const d = new Date(); d.setDate(d.getDate() + 90); return d; })();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const diff = wedding.getTime() - today.getTime();
+  const diff = target.getTime() - today.getTime();
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
@@ -87,11 +88,4 @@ export function getDaysToWedding(): number {
 export function isPastTenPM(): boolean {
   const h = new Date().getHours();
   return h >= 22;
-}
-
-/** Returns true if current time is past 23:59 (midnight cutoff) */
-export function isPastMidnight(): boolean {
-  const h = new Date().getHours();
-  const m = new Date().getMinutes();
-  return h === 23 && m >= 59;
 }

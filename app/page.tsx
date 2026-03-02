@@ -47,7 +47,7 @@ function AuthGate() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-dvh" style={{ background: '#0D0D1A' }}>
+      <div className="flex items-center justify-center min-h-dvh" style={{ background: '#06060F' }}>
         <motion.div className="text-5xl" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>🔥</motion.div>
       </div>
     );
@@ -95,7 +95,7 @@ function AppShell() {
 
   // Sync cloud → localStorage on mount + check for wrapped
   useEffect(() => {
-    syncFromSupabase();
+    syncFromSupabase().catch(() => {});
     const state = getAppState();
     if (shouldShowWrapped(state.currentDay)) {
       const weekNum = Math.floor(state.currentDay / 7);
@@ -114,7 +114,7 @@ function AppShell() {
   return (
     <div
       className="relative flex min-h-dvh w-full overflow-hidden"
-      style={{ background: '#0D0D1A' }}
+      style={{ background: '#06060F' }}
     >
       {/* ── Desktop side navigation ──────────────────────────────────────── */}
       {isDesktop && (
@@ -123,8 +123,8 @@ function AppShell() {
           style={{
             width: '220px',
             minWidth: '220px',
-            background: 'rgba(13,13,26,0.97)',
-            borderRight: '1px solid rgba(255,255,255,0.07)',
+            background: 'rgba(6,6,15,0.97)',
+            borderRight: '1px solid rgba(255,255,255,0.06)',
             backdropFilter: 'blur(16px)',
           }}
         >
@@ -147,8 +147,8 @@ function AppShell() {
                 onClick={() => setActiveTab(tab.id)}
                 className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-left transition-all"
                 style={{
-                  background: isActive ? 'rgba(255,107,53,0.15)' : 'transparent',
-                  border: `1px solid ${isActive ? 'rgba(255,107,53,0.3)' : 'transparent'}`,
+                  background: isActive ? 'rgba(255,107,53,0.12)' : 'transparent',
+                  border: `1px solid ${isActive ? 'rgba(255,107,53,0.25)' : 'transparent'}`,
                   color: isActive ? '#FF6B35' : '#64748b',
                 }}
                 whileHover={{ background: 'rgba(255,255,255,0.05)' }}
@@ -193,9 +193,9 @@ function AppShell() {
           <header
             className="sticky top-0 z-40 flex items-center justify-between px-5 py-3"
             style={{
-              background: 'rgba(13,13,26,0.95)',
-              backdropFilter: 'blur(12px)',
-              borderBottom: '1px solid rgba(255,107,53,0.15)',
+              background: 'rgba(6,6,15,0.95)',
+              backdropFilter: 'blur(16px)',
+              borderBottom: '1px solid rgba(255,107,53,0.12)',
             }}
           >
             <div className="flex items-center gap-2">
@@ -216,9 +216,9 @@ function AppShell() {
           <header
             className="sticky top-0 z-40 flex items-center justify-between px-6 py-4"
             style={{
-              background: 'rgba(13,13,26,0.95)',
-              backdropFilter: 'blur(12px)',
-              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              background: 'rgba(6,6,15,0.95)',
+              backdropFilter: 'blur(16px)',
+              borderBottom: '1px solid rgba(255,255,255,0.05)',
             }}
           >
             <div>
@@ -256,7 +256,7 @@ function AppShell() {
               transition={{ duration: 0.18, ease: 'easeInOut' }}
               className="min-h-full"
             >
-              {activeTab === 'today' && <TodayScreen onNavigateToWorkout={() => setActiveTab('workout')} />}
+              {activeTab === 'today' && <TodayScreen />}
               {activeTab === 'workout' && <WorkoutScreen />}
               {activeTab === 'progress' && <ProgressScreen />}
               {activeTab === 'ai' && <AICoachScreen />}
@@ -271,9 +271,9 @@ function AppShell() {
           <nav
             className="sticky bottom-0 z-40 safe-bottom"
             style={{
-              background: 'rgba(13,13,26,0.97)',
-              backdropFilter: 'blur(16px)',
-              borderTop: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(6,6,15,0.97)',
+              backdropFilter: 'blur(20px)',
+              borderTop: '1px solid rgba(255,255,255,0.06)',
             }}
           >
             <div className="flex items-center justify-around px-1 pt-2 pb-1">
@@ -286,7 +286,7 @@ function AppShell() {
                     whileTap={{ scale: 0.85 }}
                     className="flex flex-col items-center gap-0.5 flex-1 py-2 rounded-xl relative"
                     style={{
-                      background: isActive ? 'rgba(255,107,53,0.1)' : 'transparent',
+                      background: isActive ? 'rgba(255,107,53,0.08)' : 'transparent',
                       border: 'none',
                       cursor: 'pointer',
                       outline: 'none',

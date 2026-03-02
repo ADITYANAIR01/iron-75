@@ -1,10 +1,5 @@
 // ─── PPL Exercise Database ───────────────────────────────────────────────────
 
-export interface SetSpec {
-  reps: string; // e.g. "8-10" or "15-20"
-  rest: string; // e.g. "90s"
-}
-
 export interface ExerciseSpec {
   name: string;
   emoji: string;
@@ -580,8 +575,4 @@ export const SESSIONS: Record<string, SessionSpec> = {
   },
 };
 
-export function getTodaySession(): SessionSpec {
-  const dow = new Date().getDay();
-  const key = DOW_TO_SESSION[dow] ?? 'pushA';
-  return SESSIONS[key] ?? SESSIONS['pushA'];
-}
+

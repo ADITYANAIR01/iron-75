@@ -9,15 +9,13 @@ import { DailyLog, AppState, MoodEmoji } from './types';
 import { createClient } from './supabase';
 
 // ── Key helpers ───────────────────────────────────────────────────────────────
-export const KEYS = {
+const KEYS = {
   STREAK: 'iron75_streak',
   DAY: 'iron75_day',
   START_DATE: 'iron75_start_date',
   LONGEST_STREAK: 'iron75_longest_streak',
   TOTAL_RESTARTS: 'iron75_total_restarts',
   DAILY_LOG: (date: string) => `iron75_dailylog_${date}`,
-  WORKOUT: (date: string) => `iron75_workout_${date}`,
-  PHOTO: (date: string) => `iron75_photo_${date}`,
 } as const;
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -82,25 +80,29 @@ export function saveAppState(state: AppState): void {
 }
 
 async function syncAppStateToSupabase(state: AppState): Promise<void> {
-  const userId = await getSupabaseUserId();
-  if (!userId) return;
-  const supabase = createClient();
-  await supabase.from('app_state').upsert(
-    {
-      user_id: userId,
-      streak: state.streak,
-      current_day: state.currentDay,
-      start_date: state.startDate,
-      longest_streak: state.longestStreak,
-      total_restarts: state.totalRestarts,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' }
-  );
+  try {
+    const userId = await getSupabaseUserId();
+    if (!userId) return;
+    const supabase = createClient();
+    await supabase.from('app_state').upsert(
+      {
+        user_id: userId,
+        streak: state.streak,
+        current_day: state.currentDay,
+        start_date: state.startDate,
+        longest_streak: state.longestStreak,
+        total_restarts: state.totalRestarts,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+  } catch (err) {
+    console.warn('Supabase app_state sync failed (offline?):', err);
+  }
 }
 
 // ── Daily log ─────────────────────────────────────────────────────────────────
-export function createDefaultDailyLog(date: string): DailyLog {
+function createDefaultDailyLog(date: string): DailyLog {
   const dow = getDayOfWeek(date);
   const isWeekday = dow >= 1 && dow <= 5; // Mon–Fri auto-tick outdoor walk
   return {
@@ -143,32 +145,36 @@ export function saveDailyLog(log: DailyLog): void {
 }
 
 async function syncDailyLogToSupabase(log: DailyLog): Promise<void> {
-  const userId = await getSupabaseUserId();
-  if (!userId) return;
-  const supabase = createClient();
-  await supabase.from('daily_logs').upsert(
-    {
-      user_id: userId,
-      date: log.date,
-      gym_workout_done: log.gymWorkoutDone,
-      outdoor_walk_done: log.outdoorWalkDone,
-      water_liters: log.waterLiters,
-      water_goal_met: log.waterGoalMet,
-      reading_done: log.readingDone,
-      reading_book: log.readingBook,
-      diet_slots: log.dietSlots,
-      mood_emoji: log.moodEmoji,
-      energy_level: log.energyLevel,
-      motivation_level: log.motivationLevel,
-      soreness_level: log.sorenessLevel,
-      progress_photo_url: log.progressPhotoUrl,
-      all_tasks_complete: log.allTasksComplete,
-      celebration_shown: log.celebrationShown,
-      ai_insight_shown: log.aiInsightShown,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id,date' }
-  );
+  try {
+    const userId = await getSupabaseUserId();
+    if (!userId) return;
+    const supabase = createClient();
+    await supabase.from('daily_logs').upsert(
+      {
+        user_id: userId,
+        date: log.date,
+        gym_workout_done: log.gymWorkoutDone,
+        outdoor_walk_done: log.outdoorWalkDone,
+        water_liters: log.waterLiters,
+        water_goal_met: log.waterGoalMet,
+        reading_done: log.readingDone,
+        reading_book: log.readingBook,
+        diet_slots: log.dietSlots,
+        mood_emoji: log.moodEmoji,
+        energy_level: log.energyLevel,
+        motivation_level: log.motivationLevel,
+        soreness_level: log.sorenessLevel,
+        progress_photo_url: log.progressPhotoUrl,
+        all_tasks_complete: log.allTasksComplete,
+        celebration_shown: log.celebrationShown,
+        ai_insight_shown: log.aiInsightShown,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,date' }
+    );
+  } catch (err) {
+    console.warn('Supabase daily_log sync failed (offline?):', err);
+  }
 }
 
 /** Returns the log for today, creating a default if it doesn't exist yet. */
@@ -201,6 +207,7 @@ export function checkAllTasksComplete(log: DailyLog): boolean {
 
 // ─── Supabase → localStorage sync (call once after login) ──────────────────
 export async function syncFromSupabase(): Promise<void> {
+  try {
   const userId = await getSupabaseUserId();
   if (!userId) return;
   const supabase = createClient();
@@ -259,6 +266,9 @@ export async function syncFromSupabase(): Promise<void> {
 
   if (profile?.display_name) {
     localStorage.setItem('iron75_user_name', profile.display_name);
+  }
+  } catch (err) {
+    console.warn('Supabase sync-down failed (offline?):', err);
   }
 }
 

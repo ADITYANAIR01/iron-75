@@ -35,7 +35,7 @@ const MILESTONES = [
     title: 'One Month Gladiator',
     emoji: '🏟️',
     description: 'A full month of iron discipline. Your body and mind have transformed beyond what you can see in the mirror.',
-    color: '#A78BFA',
+    color: '#A855F7',
     badge: '🥇',
   },
   {
@@ -43,7 +43,7 @@ const MILESTONES = [
     title: 'Halfway Plus Hero',
     emoji: '💎',
     description: 'Past the halfway mark and then some. At Day 50 you have already outperformed 95% of people who started.',
-    color: '#F472B6',
+    color: '#FF6B9D',
     badge: '💎',
   },
   {
@@ -76,21 +76,21 @@ const PHASES = [
     range: [22, 40],
     name: 'Forging',
     icon: '🔥',
-    color: '#4ECDC4',
+    color: '#00F5D4',
     description: 'You\'re being forged in the fire. Discipline is no longer an effort — it\'s identity.',
   },
   {
     range: [41, 60],
     name: 'Elite',
     icon: '💎',
-    color: '#A78BFA',
+    color: '#A855F7',
     description: 'You\'ve entered elite territory. Less than 10% of challengers make it here.',
   },
   {
     range: [61, 75],
     name: 'Legacy',
     icon: '🏆',
-    color: '#F472B6',
+    color: '#FF6B9D',
     description: 'The final stretch. You are writing the story of your transformation.',
   },
 ];
@@ -151,7 +151,7 @@ export default function RoadmapScreen() {
     <div className="flex flex-col gap-5 px-4 pt-6 pb-24">
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-3xl font-black" style={{ color: '#FF6B35' }}>Roadmap 🗺️</h1>
+        <h1 className="text-3xl font-black" style={{ background: 'linear-gradient(135deg, #FF6B35, #FFE66D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Roadmap 🗺️</h1>
         <p className="text-sm text-gray-400 mt-1">Your 75-day transformation journey</p>
       </motion.div>
 
@@ -159,8 +159,9 @@ export default function RoadmapScreen() {
       <motion.div
         className="rounded-3xl p-5 relative overflow-hidden"
         style={{
-          background: `linear-gradient(135deg, ${currentPhase.color}22 0%, rgba(13,13,26,0.95) 100%)`,
-          border: `1px solid ${currentPhase.color}55`,
+          background: `linear-gradient(135deg, ${currentPhase.color}15 0%, rgba(6,6,15,0.95) 100%)`,
+          border: `1px solid ${currentPhase.color}40`,
+          boxShadow: `0 0 40px ${currentPhase.color}08`,
         }}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -185,7 +186,7 @@ export default function RoadmapScreen() {
       {/* ── Overall Progress ─────────────────────────────────────────────── */}
       <motion.div
         className="rounded-2xl p-4"
-        style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+        style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
@@ -194,10 +195,10 @@ export default function RoadmapScreen() {
           <span className="font-bold text-white">Overall Progress</span>
           <span className="font-black" style={{ color: '#FF6B35' }}>Day {currentDay} / 75</span>
         </div>
-        <div className="h-4 rounded-full overflow-hidden" style={{ background: '#1a1a3a' }}>
+        <div className="h-4 rounded-full overflow-hidden" style={{ background: '#141432' }}>
           <motion.div
             className="h-full rounded-full relative"
-            style={{ background: 'linear-gradient(90deg, #FF6B35, #FFE66D, #4ECDC4)' }}
+            style={{ background: 'linear-gradient(90deg, #FF6B35, #A855F7, #00F5D4)', boxShadow: '0 0 12px rgba(255,107,53,0.3)' }}
             animate={{ width: `${progressPct}%` }}
             initial={{ width: '0%' }}
             transition={{ duration: 1.2, ease: 'easeOut', delay: 0.2 }}
@@ -222,7 +223,7 @@ export default function RoadmapScreen() {
       {completedMilestones.length > 0 && (
         <motion.div
           className="rounded-2xl p-4"
-          style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+          style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
@@ -270,12 +271,13 @@ export default function RoadmapScreen() {
                 className="rounded-2xl p-4"
                 style={{
                   background: isComplete
-                    ? `${phaseColor}11`
+                    ? `${phaseColor}10`
                     : isCurrent
-                    ? `${phaseColor}18`
-                    : 'rgba(13,13,40,0.5)',
-                  border: `1px solid ${isComplete ? phaseColor + '44' : isCurrent ? phaseColor + '66' : '#1a1a3a'}`,
-                  opacity: isFuture ? 0.55 : 1,
+                    ? `${phaseColor}12`
+                    : 'rgba(12,12,30,0.5)',
+                  border: `1px solid ${isComplete ? phaseColor + '35' : isCurrent ? phaseColor + '50' : 'rgba(255,255,255,0.04)'}`,
+                  opacity: isFuture ? 0.5 : 1,
+                  boxShadow: isCurrent ? `0 0 20px ${phaseColor}10` : 'none',
                 }}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: isFuture ? 0.55 : 1, x: 0 }}
@@ -290,10 +292,11 @@ export default function RoadmapScreen() {
                         background: isComplete
                           ? phaseColor
                           : isCurrent
-                          ? `${phaseColor}44`
-                          : 'rgba(255,255,255,0.05)',
-                        border: `2px solid ${isComplete || isCurrent ? phaseColor : '#2a2a4a'}`,
-                        color: isComplete ? '#0D0D1A' : isCurrent ? phaseColor : '#4a4a6a',
+                          ? `${phaseColor}35`
+                          : 'rgba(255,255,255,0.04)',
+                        border: `2px solid ${isComplete || isCurrent ? phaseColor : 'rgba(255,255,255,0.08)'}`,
+                        color: isComplete ? '#06060F' : isCurrent ? phaseColor : '#4a4a6a',
+                        boxShadow: isComplete ? `0 0 12px ${phaseColor}40` : 'none',
                       }}
                     >
                       {isComplete ? '✓' : isCurrent ? '▶' : week.week}
@@ -333,8 +336,8 @@ export default function RoadmapScreen() {
                       onClick={() => setSelectedMilestone(week.milestone!)}
                       className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl"
                       style={{
-                        background: isComplete ? `${week.milestone.color}22` : 'rgba(255,255,255,0.04)',
-                        border: `1px solid ${isComplete ? week.milestone.color + '55' : '#2a2a4a'}`,
+                        background: isComplete ? `${week.milestone.color}15` : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${isComplete ? week.milestone.color + '40' : 'rgba(255,255,255,0.06)'}`,
                       }}
                       whileTap={{ scale: 0.9 }}
                     >
@@ -365,8 +368,9 @@ export default function RoadmapScreen() {
             <motion.div
               className="w-full max-w-sm rounded-3xl p-6 text-center"
               style={{
-                background: `linear-gradient(135deg, ${selectedMilestone.color}22, #0D0D1A)`,
-                border: `2px solid ${selectedMilestone.color}55`,
+                background: `linear-gradient(135deg, ${selectedMilestone.color}15, #06060F)`,
+                border: `2px solid ${selectedMilestone.color}40`,
+                boxShadow: `0 0 40px ${selectedMilestone.color}15`,
               }}
               initial={{ y: 80, opacity: 0, scale: 0.9 }}
               animate={{ y: 0, opacity: 1, scale: 1 }}
@@ -390,7 +394,7 @@ export default function RoadmapScreen() {
                 className="w-full py-3 rounded-xl font-bold text-sm"
                 style={{
                   background: selectedMilestone.color,
-                  color: '#0D0D1A',
+                  color: '#06060F',
                 }}
                 whileTap={{ scale: 0.95 }}
               >

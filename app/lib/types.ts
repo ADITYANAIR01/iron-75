@@ -37,24 +37,3 @@ export interface AppState {
 }
 
 export type TabId = 'today' | 'workout' | 'progress' | 'ai' | 'roadmap' | 'settings';
-
-export interface WorkoutSet {
-  reps: string;
-  done: boolean;
-}
-
-export interface Exercise {
-  name: string;
-  sets: WorkoutSet[];
-  notes: string;
-}
-
-export interface WorkoutSession {
-  sessionId: string;
-  date: string;
-  sessionType: string;
-  dayOfWeek: string;
-  exercises: Exercise[];
-  durationMinutes: number;
-  completed: boolean;
-}

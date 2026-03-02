@@ -81,7 +81,15 @@ export default function AICoachScreen() {
   const handleAsk = useCallback(async (challengeId: string) => {
     if (!state) return;
     setActiveChallenge(challengeId);
-    if (responses[challengeId]) return; // cached
+
+    // Check cache via functional access to avoid stale closure
+    const isCached = await new Promise<boolean>((resolve) => {
+      setResponses((prev) => {
+        resolve(!!prev[challengeId]);
+        return prev;
+      });
+    });
+    if (isCached) return;
 
     setLoading(challengeId);
     let prompt = '';
@@ -105,10 +113,10 @@ export default function AICoachScreen() {
       }
     }
 
-    const text = await askGemini(prompt);
+    const text = await askGemini(prompt, challengeId);
     setResponses((prev) => ({ ...prev, [challengeId]: text }));
     setLoading(null);
-  }, [state, log, responses]);
+  }, [state, log]);
 
   // Auto-load today's tip on mount (runs once after state is ready)
   useEffect(() => {
@@ -126,7 +134,7 @@ export default function AICoachScreen() {
   return (
     <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl font-black" style={{ color: '#4ECDC4' }}>AI Coach 🤖</h1>
+        <h1 className="text-2xl font-black" style={{ background: 'linear-gradient(135deg, #00F5D4, #38BDF8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>AI Coach 🤖</h1>
         <p className="text-xs text-gray-500 mt-0.5">Powered by Google Gemini — your personal Iron75 coach</p>
       </motion.div>
 
@@ -140,9 +148,10 @@ export default function AICoachScreen() {
               onClick={() => handleAsk(ch.id)}
               className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold whitespace-nowrap"
               style={{
-                background: isActive ? 'rgba(78,205,196,0.25)' : 'rgba(255,255,255,0.05)',
-                border: `1px solid ${isActive ? '#4ECDC4' : '#2a2a4a'}`,
-                color: isActive ? '#4ECDC4' : '#64748b',
+              background: isActive ? 'rgba(0,245,212,0.15)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${isActive ? 'rgba(0,245,212,0.4)' : 'rgba(255,255,255,0.06)'}`,
+              color: isActive ? '#00F5D4' : '#64748b',
+              boxShadow: isActive ? '0 0 16px rgba(0,245,212,0.12)' : 'none',
               }}
               whileTap={{ scale: 0.9 }}
             >
@@ -162,23 +171,23 @@ export default function AICoachScreen() {
             <motion.div
               key={ch.id}
               className="rounded-2xl p-5"
-              style={{ background: 'rgba(78,205,196,0.07)', border: '1px solid #4ECDC455' }}
+              style={{ background: 'linear-gradient(135deg, rgba(0,245,212,0.06), rgba(6,6,15,0.95))', border: '1px solid rgba(0,245,212,0.25)', boxShadow: '0 0 20px rgba(0,245,212,0.05)' }}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
             >
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-2xl">{ch.icon}</span>
-                <span className="font-bold text-sm uppercase tracking-wide" style={{ color: '#4ECDC4' }}>{ch.label}</span>
+                <span className="font-bold text-sm uppercase tracking-wide" style={{ color: '#00F5D4' }}>{ch.label}</span>
               </div>
 
               {isLoading ? (
                 <div className="flex items-center gap-3 py-4">
                   <motion.span className="text-2xl" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>⚙️</motion.span>
                   <div className="flex flex-col gap-1 flex-1">
-                    <div className="h-2 rounded-full animate-pulse" style={{ background: '#2a2a4a', width: '80%' }} />
-                    <div className="h-2 rounded-full animate-pulse" style={{ background: '#2a2a4a', width: '60%' }} />
-                    <div className="h-2 rounded-full animate-pulse" style={{ background: '#2a2a4a', width: '70%' }} />
+                    <div className="h-2 rounded-full animate-pulse" style={{ background: '#141432', width: '80%' }} />
+                    <div className="h-2 rounded-full animate-pulse" style={{ background: '#141432', width: '60%' }} />
+                    <div className="h-2 rounded-full animate-pulse" style={{ background: '#141432', width: '70%' }} />
                   </div>
                 </div>
               ) : text ? (
@@ -199,7 +208,7 @@ export default function AICoachScreen() {
                     handleAsk(ch.id);
                   }}
                   className="mt-3 text-xs font-semibold"
-                  style={{ color: '#4ECDC4', opacity: 0.7 }}
+                  style={{ color: '#00F5D4', opacity: 0.7 }}
                   whileTap={{ scale: 0.9 }}
                 >
                   🔄 Refresh
@@ -221,13 +230,13 @@ export default function AICoachScreen() {
           {[
             { label: 'Challenge Day', value: `${state.currentDay}/75`, color: '#FF6B35', icon: '📅' },
             { label: 'Streak', value: `${state.streak} 🔥`, color: '#FF6B35', icon: '🔥' },
-            { label: 'Longest Streak', value: `${state.longestStreak} days`, color: '#4ECDC4', icon: '🏆' },
+            { label: 'Longest Streak', value: `${state.longestStreak} days`, color: '#00F5D4', icon: '🏆' },
             { label: 'Today\'s Mood', value: log?.moodEmoji ? getMoodEmoji(log.moodEmoji) : '—', color: '#FFE66D', icon: '😊' },
           ].map((item) => (
             <div
               key={item.label}
               className="rounded-xl p-3 text-center"
-              style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+              style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
             >
               <div className="text-xl mb-0.5">{item.icon}</div>
               <div className="text-lg font-black" style={{ color: item.color }}>{item.value}</div>

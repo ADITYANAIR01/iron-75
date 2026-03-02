@@ -44,11 +44,17 @@ export default function LoginScreen() {
 
   return (
     <div
-      className="min-h-dvh flex flex-col items-center justify-center px-6"
-      style={{ background: '#0D0D1A' }}
+      className="min-h-dvh flex flex-col items-center justify-center px-6 relative overflow-hidden"
+      style={{ background: '#06060F' }}
     >
+      {/* Animated background orbs */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute w-64 h-64 rounded-full opacity-20" style={{ background: 'radial-gradient(circle, rgba(255,107,53,0.3) 0%, transparent 70%)', top: '-10%', left: '-10%', animation: 'float 8s ease-in-out infinite' }} />
+        <div className="absolute w-48 h-48 rounded-full opacity-15" style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.3) 0%, transparent 70%)', bottom: '10%', right: '-5%', animation: 'float 6s ease-in-out infinite reverse' }} />
+        <div className="absolute w-32 h-32 rounded-full opacity-10" style={{ background: 'radial-gradient(circle, rgba(0,245,212,0.3) 0%, transparent 70%)', top: '40%', left: '60%', animation: 'float 10s ease-in-out infinite' }} />
+      </div>
       <motion.div
-        className="w-full max-w-sm flex flex-col gap-6"
+        className="w-full max-w-sm flex flex-col gap-6 relative z-10"
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
@@ -62,14 +68,14 @@ export default function LoginScreen() {
           >
             🔥
           </motion.div>
-          <h1 className="text-3xl font-black text-white">IRON75</h1>
+          <h1 className="text-3xl font-black" style={{ background: 'linear-gradient(135deg, #FF6B35, #FFE66D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>IRON75</h1>
           <p className="text-sm text-gray-500 mt-1">75 Hard Challenge Tracker</p>
         </div>
 
         {/* Mode toggle */}
         <div
           className="flex rounded-xl overflow-hidden"
-          style={{ border: '1px solid #2a2a4a', background: 'rgba(13,13,40,0.8)' }}
+          style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(12,12,30,0.8)' }}
         >
           {(['login', 'signup'] as const).map((m) => (
             <button
@@ -81,8 +87,8 @@ export default function LoginScreen() {
               }}
               className="flex-1 py-2.5 text-sm font-bold transition-all capitalize"
               style={{
-                background: mode === m ? '#FF6B35' : 'transparent',
-                color: mode === m ? '#fff' : '#888',
+              background: mode === m ? 'linear-gradient(135deg, #FF6B35, #FF8F5E)' : 'transparent',
+              color: mode === m ? '#fff' : '#64748b',
               }}
             >
               {m === 'login' ? 'Log In' : 'Sign Up'}
@@ -100,8 +106,8 @@ export default function LoginScreen() {
             required
             className="px-4 py-3 rounded-xl text-sm outline-none"
             style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid #2a2a4a',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
               color: '#e2e8f0',
             }}
           />
@@ -114,8 +120,8 @@ export default function LoginScreen() {
             minLength={6}
             className="px-4 py-3 rounded-xl text-sm outline-none"
             style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid #2a2a4a',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
               color: '#e2e8f0',
             }}
           />
@@ -134,7 +140,7 @@ export default function LoginScreen() {
             {success && (
               <motion.p
                 className="text-xs px-1"
-                style={{ color: '#4ECDC4' }}
+                style={{ color: '#00F5D4' }}
                 initial={{ opacity: 0, y: -5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
@@ -151,10 +157,11 @@ export default function LoginScreen() {
             className="w-full py-3 rounded-xl font-bold text-sm text-white"
             style={{
               background: loading
-                ? 'rgba(255,107,53,0.4)'
+                ? 'rgba(255,107,53,0.3)'
                 : 'linear-gradient(135deg, #FF6B35, #FF8F5E)',
               border: 'none',
               cursor: loading ? 'not-allowed' : 'pointer',
+              boxShadow: loading ? 'none' : '0 4px 20px rgba(255,107,53,0.3)',
             }}
           >
             {loading ? '...' : mode === 'login' ? 'Log In' : 'Create Account'}
@@ -163,9 +170,9 @@ export default function LoginScreen() {
 
         {/* Divider */}
         <div className="flex items-center gap-3">
-          <div className="flex-1 h-px" style={{ background: '#2a2a4a' }} />
+          <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
           <span className="text-xs text-gray-500">or</span>
-          <div className="flex-1 h-px" style={{ background: '#2a2a4a' }} />
+          <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
         </div>
 
         {/* Google OAuth */}
@@ -175,8 +182,8 @@ export default function LoginScreen() {
           whileTap={{ scale: 0.97 }}
           className="w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
           style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid #2a2a4a',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.06)',
             color: '#e2e8f0',
             cursor: loading ? 'not-allowed' : 'pointer',
           }}

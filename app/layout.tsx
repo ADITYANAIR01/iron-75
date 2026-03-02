@@ -23,7 +23,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#0D0D1A',
+  themeColor: '#06060F',
 };
 
 export default function RootLayout({
@@ -35,9 +35,15 @@ export default function RootLayout({
     <html lang="en">
       <body
         className="antialiased"
-        style={{ background: '#0D0D1A', color: '#E2E8F0' }}
+        style={{ background: '#06060F', color: '#E2E8F0' }}
       >
         {children}
+        {/* Register SW inline — minimal JS, no extra bundle */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js',{scope:'/'})})}`
+          }}
+        />
       </body>
     </html>
   );

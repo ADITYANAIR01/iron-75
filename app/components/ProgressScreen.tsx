@@ -81,6 +81,7 @@ function buildDayStatuses(startDate: string, currentDay: number): DayStatus[] {
       days.push({ day: dayNum, date, status: 'future', tasksCompleted: 0, log: null });
       continue;
     }
+    const isToday = dayNum === currentDay;
     const raw =
       typeof window !== 'undefined'
         ? localStorage.getItem(`iron75_dailylog_${date}`)
@@ -92,11 +93,11 @@ function buildDayStatuses(startDate: string, currentDay: number): DayStatus[] {
         day: dayNum,
         date,
         log,
-        status: log.allTasksComplete ? 'complete' : 'failed',
+        status: log.allTasksComplete ? 'complete' : isToday ? 'future' : 'failed',
         tasksCompleted: tasks,
       });
     } else {
-      days.push({ day: dayNum, date, status: 'failed', tasksCompleted: 0, log: null });
+      days.push({ day: dayNum, date, status: isToday ? 'future' : 'failed', tasksCompleted: 0, log: null });
     }
   }
   return days;
@@ -117,9 +118,9 @@ function buildChartData(days: DayStatus[]): ChartRow[] {
 }
 
 // ─── Color helpers ─────────────────────────────────────────────────────────────
-const COMPLETE_COLOR = '#4ECDC4';
+const COMPLETE_COLOR = '#00F5D4';
 const FAILED_COLOR = '#FF6B35';
-const FUTURE_COLOR = '#2a2a4a';
+const FUTURE_COLOR = '#141432';
 
 function statusColor(s: DayStatus['status']): string {
   if (s === 'complete') return COMPLETE_COLOR;
@@ -130,15 +131,15 @@ function statusColor(s: DayStatus['status']): string {
 function ringFillColor(pct: number, isFuture: boolean): string {
   if (isFuture) return FUTURE_COLOR;
   if (pct >= 1) return COMPLETE_COLOR;
-  if (pct >= 0.57) return '#FFE66D';
+  if (pct >= 0.57) return '#BAFF39';
   if (pct > 0) return FAILED_COLOR;
-  return '#FF4444';
+  return '#FF4757';
 }
 
 function taskBarColor(tasks: number): string {
-  if (tasks === 6) return '#4ECDC4';
+  if (tasks === 6) return '#00F5D4';
   if (tasks >= 3) return '#FF6B35';
-  return '#FF4444';
+  return '#FF4757';
 }
 
 // ─── GitHub Heatmap Grid ───────────────────────────────────────────────────────
@@ -149,8 +150,11 @@ function HeatmapGrid({ days }: { days: DayStatus[] }) {
         {days.map((d) => (
           <motion.div
             key={d.day}
-            className="aspect-square rounded-sm cursor-default"
-            style={{ background: statusColor(d.status) }}
+            className="aspect-square rounded-[4px] cursor-default"
+            style={{
+              background: statusColor(d.status),
+              boxShadow: d.status === 'complete' ? `0 0 8px ${COMPLETE_COLOR}30` : d.status === 'failed' ? `0 0 6px ${FAILED_COLOR}20` : 'none',
+            }}
             title={`Day ${d.day} (${d.date}) — ${d.status}${d.status !== 'future' ? `: ${d.tasksCompleted}/6 tasks` : ''}`}
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -169,12 +173,12 @@ function HeatmapGrid({ days }: { days: DayStatus[] }) {
           [
             ['Complete', COMPLETE_COLOR],
             ['Failed', FAILED_COLOR],
-            ['Future', '#3a3a5a'],
+            ['Future', '#2a2a4a'],
           ] as [string, string][]
         ).map(([label, color]) => (
           <div key={label} className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-sm" style={{ background: color }} />
-            <span className="text-xs" style={{ color: '#888' }}>
+            <div className="w-3 h-3 rounded-[3px]" style={{ background: color }} />
+            <span className="text-xs" style={{ color: '#64748b' }}>
               {label}
             </span>
           </div>
@@ -215,7 +219,7 @@ function RingView({ days }: { days: DayStatus[] }) {
                 cx={SIZE / 2}
                 cy={SIZE / 2}
                 r={R}
-                stroke="#1a1a3a"
+                stroke="#141432"
                 strokeWidth="3"
                 fill="none"
               />
@@ -256,8 +260,8 @@ function RingView({ days }: { days: DayStatus[] }) {
 }
 
 // ─── Chart helpers ─────────────────────────────────────────────────────────────
-const GRID_COLOR = '#2a2a4a';
-const AXIS_COLOR = '#888888';
+const GRID_COLOR = '#1a1a40';
+const AXIS_COLOR = '#64748b';
 
 function ChartTooltip({
   active,
@@ -272,9 +276,9 @@ function ChartTooltip({
   return (
     <div
       className="px-3 py-2 rounded-lg text-xs"
-      style={{ background: '#1a1a40', border: '1px solid #2a2a5a', color: '#e2e8f0' }}
+      style={{ background: 'rgba(12,12,30,0.95)', border: '1px solid rgba(255,255,255,0.1)', color: '#e2e8f0', backdropFilter: 'blur(8px)' }}
     >
-      <p className="font-bold mb-1" style={{ color: '#4ECDC4' }}>
+      <p className="font-bold mb-1" style={{ color: '#00F5D4' }}>
         {label}
       </p>
       {payload.map((p) => (
@@ -301,7 +305,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   return (
     <div
       className="rounded-2xl p-4"
-      style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+      style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
     >
       <h3 className="text-sm font-bold text-white mb-3">{title}</h3>
       {children}
@@ -343,7 +347,7 @@ export default function ProgressScreen() {
     <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl font-black" style={{ color: '#4ECDC4' }}>
+        <h1 className="text-2xl font-black" style={{ background: 'linear-gradient(135deg, #00F5D4, #38BDF8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
           Progress
         </h1>
         <p className="text-sm text-gray-400 mt-1">Your 75-day journey visualized</p>
@@ -358,9 +362,10 @@ export default function ProgressScreen() {
             className="px-3 py-1.5 rounded-full text-xs font-semibold capitalize transition-all"
             style={{
               background:
-                activeTab === tab ? 'rgba(78,205,196,0.2)' : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${activeTab === tab ? '#4ECDC4' : '#2a2a4a'}`,
-              color: activeTab === tab ? '#4ECDC4' : '#64748b',
+                activeTab === tab ? 'rgba(0,245,212,0.12)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${activeTab === tab ? 'rgba(0,245,212,0.4)' : 'rgba(255,255,255,0.06)'}`,
+              color: activeTab === tab ? '#00F5D4' : '#64748b',
+              boxShadow: activeTab === tab ? '0 0 12px rgba(0,245,212,0.15)' : 'none',
             }}
           >
             {TAB_LABELS[tab]}
@@ -383,7 +388,7 @@ export default function ProgressScreen() {
             {/* Heatmap view toggle */}
             <div
               className="flex rounded-xl overflow-hidden"
-              style={{ border: '1px solid #2a2a4a', background: 'rgba(13,13,40,0.8)' }}
+              style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(12,12,30,0.8)' }}
             >
               {(['grid', 'rings'] as const).map((view) => (
                 <button
@@ -391,8 +396,8 @@ export default function ProgressScreen() {
                   onClick={() => setHeatmapView(view)}
                   className="flex-1 py-2.5 text-xs font-bold transition-all"
                   style={{
-                    background: heatmapView === view ? '#4ECDC4' : 'transparent',
-                    color: heatmapView === view ? '#0D0D1A' : '#888',
+                    background: heatmapView === view ? '#00F5D4' : 'transparent',
+                    color: heatmapView === view ? '#06060F' : '#64748b',
                   }}
                 >
                   {view === 'grid' ? '⬛ Grid' : '⭕ Progress Rings'}
@@ -403,7 +408,7 @@ export default function ProgressScreen() {
             {/* Heatmap panel */}
             <div
               className="rounded-2xl p-4"
-              style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+              style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-bold" style={{ color: '#e2e8f0' }}>
@@ -451,7 +456,7 @@ export default function ProgressScreen() {
                 <div
                   key={label}
                   className="rounded-xl p-3 text-center"
-                  style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
                 >
                   <motion.div
                     className="text-2xl font-black"
@@ -480,10 +485,10 @@ export default function ProgressScreen() {
                 >
                   {(
                     [
-                      ['7/7 Complete', COMPLETE_COLOR],
-                      ['4–5/6', '#FFE66D'],
-                      ['1–3/6', FAILED_COLOR],
-                      ['0/6', '#FF4444'],
+                      ['6/6 Complete', COMPLETE_COLOR],
+                    ['4–5/6', '#BAFF39'],
+                    ['1–3/6', FAILED_COLOR],
+                    ['0/6', '#FF4757'],
                       ['Future', FUTURE_COLOR],
                     ] as [string, string][]
                   ).map(([label, color]) => (
@@ -492,7 +497,7 @@ export default function ProgressScreen() {
                         className="w-3 h-3 rounded-full border"
                         style={{ borderColor: color, background: 'transparent' }}
                       />
-                      <span className="text-xs" style={{ color: '#888' }}>
+                    <span className="text-xs" style={{ color: '#64748b' }}>
                         {label}
                       </span>
                     </div>
@@ -531,7 +536,7 @@ export default function ProgressScreen() {
 
               if (photos.length === 0) {
                 return (
-                  <div className="rounded-2xl p-8 text-center" style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}>
+                  <div className="rounded-2xl p-8 text-center" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div className="text-5xl mb-3">📸</div>
                     <p className="text-sm font-bold text-white mb-1">No photos yet</p>
                     <p className="text-xs" style={{ color: '#64748b' }}>
@@ -543,7 +548,7 @@ export default function ProgressScreen() {
 
               return (
                 <>
-                  <div className="rounded-2xl p-4" style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}>
+                  <div className="rounded-2xl p-4" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <p className="text-sm font-bold text-white mb-1">{photos.length} Progress Photos</p>
                     <p className="text-xs text-gray-500">Your transformation in pictures</p>
                   </div>
@@ -552,7 +557,7 @@ export default function ProgressScreen() {
                       <motion.div
                         key={p.date}
                         className="relative rounded-xl overflow-hidden aspect-[3/4]"
-                        style={{ border: '1px solid #2a2a4a' }}
+                        style={{ border: '1px solid rgba(255,255,255,0.06)' }}
                         whileHover={{ scale: 1.03 }}
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -674,18 +679,18 @@ export default function ProgressScreen() {
                         type="monotone"
                         dataKey="motivation"
                         name="Motivation"
-                        stroke="#4ECDC4"
+                        stroke="#A855F7"
                         strokeWidth={2}
-                        dot={{ r: 2, strokeWidth: 0, fill: '#4ECDC4' }}
+                        dot={{ r: 2, strokeWidth: 0, fill: '#A855F7' }}
                         animationDuration={900}
                       />
                       <Line
                         type="monotone"
                         dataKey="soreness"
                         name="Soreness"
-                        stroke="#FF4444"
+                        stroke="#FF4757"
                         strokeWidth={2}
-                        dot={{ r: 2, strokeWidth: 0, fill: '#FF4444' }}
+                        dot={{ r: 2, strokeWidth: 0, fill: '#FF4757' }}
                         animationDuration={1000}
                       />
                     </LineChart>
@@ -731,7 +736,7 @@ export default function ProgressScreen() {
                       <Bar
                         dataKey="water"
                         name="Water (L)"
-                        fill="#4ECDC4"
+                        fill="#00F5D4"
                         radius={[4, 4, 0, 0]}
                         animationDuration={800}
                         animationEasing="ease-out"
@@ -766,7 +771,7 @@ export default function ProgressScreen() {
                       <Tooltip content={<ChartTooltip />} />
                       <ReferenceLine
                         y={6}
-                        stroke="#4ECDC4"
+                        stroke="#00F5D4"
                         strokeDasharray="4 4"
                         strokeOpacity={0.5}
                       />
@@ -786,9 +791,9 @@ export default function ProgressScreen() {
                   <div className="flex gap-4 mt-2">
                     {(
                       [
-                        ['6/6', '#4ECDC4'],
-                        ['3–5', '#FF6B35'],
-                        ['0–2', '#FF4444'],
+                      ['6/6', '#00F5D4'],
+                      ['3–5', '#FF6B35'],
+                      ['0–2', '#FF4757'],
                       ] as [string, string][]
                     ).map(([label, color]) => (
                       <div key={label} className="flex items-center gap-1">
