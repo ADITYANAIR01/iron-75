@@ -103,12 +103,10 @@ async function syncAppStateToSupabase(state: AppState): Promise<void> {
 
 // ── Daily log ─────────────────────────────────────────────────────────────────
 function createDefaultDailyLog(date: string): DailyLog {
-  const dow = getDayOfWeek(date);
-  const isWeekday = dow >= 1 && dow <= 5; // Mon–Fri auto-tick outdoor walk
   return {
     date,
     gymWorkoutDone: false,
-    outdoorWalkDone: isWeekday,
+    outdoorWalkDone: false,
     waterLiters: 0,
     waterGoalMet: false,
     readingDone: false,
