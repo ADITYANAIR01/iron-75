@@ -113,7 +113,7 @@ function AppShell() {
 
   return (
     <div
-      className="relative flex min-h-dvh w-full overflow-hidden"
+      className="relative flex h-dvh min-h-dvh w-full overflow-hidden"
       style={{ background: '#06060F' }}
     >
       {/* ── Desktop side navigation ──────────────────────────────────────── */}
@@ -245,6 +245,7 @@ function AppShell() {
             maxWidth: isDesktop ? '780px' : undefined,
             margin: isDesktop ? '0 auto' : undefined,
             width: '100%',
+            paddingBottom: isDesktop ? undefined : 'calc(84px + env(safe-area-inset-bottom, 16px))',
           }}
         >
           <AnimatePresence mode="wait" initial={false}>
@@ -269,8 +270,12 @@ function AppShell() {
         {/* Bottom navigation (mobile only) */}
         {!isDesktop && (
           <nav
-            className="sticky bottom-0 z-40 safe-bottom"
+            className="fixed bottom-0 left-0 right-0 z-40 safe-bottom"
             style={{
+              position: 'fixed',
+              left: 0,
+              right: 0,
+              bottom: 0,
               background: 'rgba(6,6,15,0.97)',
               backdropFilter: 'blur(20px)',
               borderTop: '1px solid rgba(255,255,255,0.06)',
