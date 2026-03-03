@@ -314,14 +314,25 @@ export default function TodayScreen() {
   const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handlePhotoSelected(file);
+    e.target.value = ''; // allow re-selecting same file
   };
 
   const handleGalleryPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handlePhotoSelected(file);
+    e.target.value = ''; // allow re-selecting same file
   };
 
-  const toggleCard = (id: string) => setExpandedCard((prev) => (prev === id ? null : id));
+  const toggleCard = (id: string) => {
+    setExpandedCard((prev) => {
+      if (prev === id) {
+        // Collapsing — reset photo options picker
+        if (id === 'photo') setShowPhotoOptions(false);
+        return null;
+      }
+      return id;
+    });
+  };
 
   if (!mounted || !log) {
     return (
