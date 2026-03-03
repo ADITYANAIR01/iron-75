@@ -270,20 +270,33 @@ export async function syncFromSupabase(): Promise<void> {
   }
 }
 
+// ─── Photo rename helper — date + metadata ──────────────────────────────────
+export function renamePhotoWithMetadata(
+  file: File,
+  date: string,
+  dayNumber: number
+): File {
+  const ext = file.name.split('.').pop() ?? 'jpg';
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const newName = `iron75_day${dayNumber}_${date}_${timestamp}.${ext}`;
+  return new File([file], newName, { type: file.type, lastModified: Date.now() });
+}
+
 // ─── Supabase Storage — progress photo upload ────────────────────────────────
 export async function uploadProgressPhoto(
   file: File,
-  date: string
+  date: string,
+  dayNumber: number = 1
 ): Promise<string | null> {
   const userId = await getSupabaseUserId();
   if (!userId) return null;
   try {
     const supabase = createClient();
-    const ext = file.name.split('.').pop() ?? 'jpg';
-    const path = `${userId}/${date}.${ext}`;
+    const renamedFile = renamePhotoWithMetadata(file, date, dayNumber);
+    const path = `${userId}/${renamedFile.name}`;
     const { error } = await supabase.storage
       .from('progress-photos')
-      .upload(path, file, { upsert: true, contentType: file.type });
+      .upload(path, renamedFile, { upsert: true, contentType: renamedFile.type });
     if (error) {
       console.error('Photo upload error:', error.message);
       return null;
@@ -306,5 +319,161 @@ export async function saveProfileName(name: string): Promise<void> {
     { id: userId, display_name: name, updated_at: new Date().toISOString() },
     { onConflict: 'id' }
   );
+}
+
+// ─── Export all data ────────────────────────────────────────────────────────
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+export function exportAllData(): { appState: AppState; logs: DailyLog[]; userName: string } {
+  const appState = getAppState();
+  const userName = typeof window !== 'undefined'
+    ? localStorage.getItem('iron75_user_name') ?? ''
+    : '';
+
+  // Gather all daily logs from localStorage
+  const logs: DailyLog[] = [];
+  if (typeof window !== 'undefined') {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('iron75_dailylog_')) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) logs.push(JSON.parse(raw) as DailyLog);
+        } catch { /* skip corrupt entries */ }
+      }
+    }
+    logs.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  return { appState, logs, userName };
+}
+
+/** Returns a downloadable HTML report string */
+export function generateExportHTML(): string {
+  const { appState, logs, userName } = exportAllData();
+  const dateGenerated = new Date().toLocaleString();
+
+  const logRows = logs.map((l) => `
+    <tr>
+      <td>${escapeHtml(l.date)}</td>
+      <td>${l.gymWorkoutDone ? '✅' : '❌'}</td>
+      <td>${l.outdoorWalkDone ? '✅' : '❌'}</td>
+      <td>${l.waterLiters.toFixed(1)}L</td>
+      <td>${l.readingDone ? '✅' : '❌'}</td>
+      <td>${escapeHtml(l.moodEmoji || '—')}</td>
+      <td>${l.energyLevel}/5</td>
+      <td>${l.motivationLevel}/5</td>
+      <td>${l.sorenessLevel}/5</td>
+      <td>${escapeHtml(l.dietSlots.breakfast || '—')}</td>
+      <td>${escapeHtml(l.dietSlots.lunch || '—')}</td>
+      <td>${escapeHtml(l.dietSlots.dinner || '—')}</td>
+      <td>${escapeHtml(l.dietSlots.snacks || '—')}</td>
+      <td>${l.allTasksComplete ? '✅' : '❌'}</td>
+    </tr>
+  `).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iron75 Data Export — ${escapeHtml(userName || 'User')}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a1a; color: #e2e8f0; padding: 2rem; }
+    h1 { font-size: 2rem; background: linear-gradient(135deg, #FF6B35, #FFE66D); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 0.5rem; }
+    h2 { color: #94a3b8; font-size: 1.1rem; margin: 2rem 0 1rem; }
+    .meta { color: #64748b; font-size: 0.85rem; margin-bottom: 2rem; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .stat-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 1rem; padding: 1.25rem; text-align: center; }
+    .stat-value { font-size: 2rem; font-weight: 900; color: #FF6B35; }
+    .stat-label { font-size: 0.75rem; color: #64748b; margin-top: 0.25rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { padding: 0.6rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: center; }
+    th { background: rgba(255,255,255,0.03); color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.05em; }
+    tr:hover { background: rgba(255,255,255,0.02); }
+    .footer { margin-top: 3rem; text-align: center; color: #475569; font-size: 0.75rem; }
+    @media (max-width: 768px) { body { padding: 1rem; } table { font-size: 0.7rem; } th, td { padding: 0.4rem 0.25rem; } }
+  </style>
+</head>
+<body>
+  <h1>🔥 IRON75 Data Export</h1>
+  <p class="meta">${userName ? `Athlete: <strong>${escapeHtml(userName)}</strong> · ` : ''}Generated: ${escapeHtml(dateGenerated)}</p>
+
+  <h2>📊 Challenge Overview</h2>
+  <div class="stats">
+    <div class="stat-card"><div class="stat-value">${appState.currentDay}</div><div class="stat-label">Current Day</div></div>
+    <div class="stat-card"><div class="stat-value">${appState.streak} 🔥</div><div class="stat-label">Current Streak</div></div>
+    <div class="stat-card"><div class="stat-value">${appState.longestStreak}</div><div class="stat-label">Longest Streak</div></div>
+    <div class="stat-card"><div class="stat-value">${appState.totalRestarts}</div><div class="stat-label">Total Restarts</div></div>
+    <div class="stat-card"><div class="stat-value">${appState.startDate}</div><div class="stat-label">Start Date</div></div>
+    <div class="stat-card"><div class="stat-value">${logs.length}</div><div class="stat-label">Days Logged</div></div>
+    <div class="stat-card"><div class="stat-value">${logs.filter(l => l.allTasksComplete).length}</div><div class="stat-label">Perfect Days</div></div>
+  </div>
+
+  <h2>📅 Daily Logs (${logs.length} days)</h2>
+  <div style="overflow-x:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th><th>Gym</th><th>Walk</th><th>Water</th><th>Read</th><th>Mood</th>
+          <th>Energy</th><th>Motiv.</th><th>Sore.</th><th>Breakfast</th><th>Lunch</th>
+          <th>Dinner</th><th>Snacks</th><th>Complete</th>
+        </tr>
+      </thead>
+      <tbody>${logRows}</tbody>
+    </table>
+  </div>
+
+  <div class="footer">Iron75 Challenge Tracker · Exported from app</div>
+</body>
+</html>`;
+}
+
+// ─── Delete all data (localStorage + Supabase) ──────────────────────────────
+export async function deleteAllData(): Promise<void> {
+  // 1. Clear all Iron75 keys from localStorage
+  if (typeof window !== 'undefined') {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('iron75_')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  }
+
+  // 2. Delete from Supabase
+  try {
+    const userId = await getSupabaseUserId();
+    if (!userId) return;
+    const supabase = createClient();
+
+    // Delete daily logs
+    await supabase.from('daily_logs').delete().eq('user_id', userId);
+    // Delete app state
+    await supabase.from('app_state').delete().eq('user_id', userId);
+    // Delete profile
+    await supabase.from('profiles').delete().eq('id', userId);
+
+    // Delete all progress photos from storage
+    const { data: files } = await supabase.storage
+      .from('progress-photos')
+      .list(userId);
+    if (files && files.length > 0) {
+      const paths = files.map((f) => `${userId}/${f.name}`);
+      await supabase.storage.from('progress-photos').remove(paths);
+    }
+  } catch (err) {
+    console.warn('Supabase data deletion failed:', err);
+  }
 }
 

@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useRef } from 'react';
-import { getAppState, saveAppState, getToday, saveProfileName } from '../lib/storage';
+import { getAppState, saveAppState, getToday, saveProfileName, generateExportHTML, deleteAllData } from '../lib/storage';
 import { AppState } from '../lib/types';
 import { useAuth } from './AuthProvider';
 
@@ -10,6 +10,8 @@ export default function SettingsScreen() {
   const { user, signOut } = useAuth();
   const [state, setState] = useState<AppState | null>(null);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState('');
   const [toast, setToast] = useState('');
 
@@ -44,6 +46,46 @@ export default function SettingsScreen() {
     setShowConfirmReset(false);
     setToast('Challenge restarted. Day 1 begins today! 🔥');
     setTimeout(() => setToast(''), 3000);
+  };
+
+  const handleExportData = () => {
+    try {
+      const html = generateExportHTML();
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `iron75_export_${new Date().toISOString().split('T')[0]}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setToast('Data exported successfully! 📁');
+      setTimeout(() => setToast(''), 3000);
+    } catch {
+      setToast('Export failed. Please try again.');
+      setTimeout(() => setToast(''), 3000);
+    }
+  };
+
+  const handleDeleteAllData = async () => {
+    setDeleting(true);
+    try {
+      await deleteAllData();
+      setState(null);
+      setName('');
+      setShowConfirmDelete(false);
+      setToast('All data deleted permanently. 🗑️');
+      setTimeout(() => {
+        setToast('');
+        window.location.reload();
+      }, 2000);
+    } catch {
+      setToast('Delete failed. Please try again.');
+      setTimeout(() => setToast(''), 3000);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -137,6 +179,30 @@ export default function SettingsScreen() {
         </div>
       </motion.div>
 
+      {/* Data Management section */}
+      <motion.div
+        className="rounded-2xl p-5"
+        style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.18 }}
+      >
+        <h2 className="font-bold text-sm text-gray-300 uppercase tracking-wide mb-3">Data Management</h2>
+        <div className="flex flex-col gap-3">
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={handleExportData}
+            className="w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2"
+            style={{ background: 'rgba(0,245,212,0.08)', border: '1px solid rgba(0,245,212,0.25)', color: '#00F5D4' }}
+          >
+            📊 Export All Data (HTML Report)
+          </motion.button>
+          <p className="text-xs text-gray-500">
+            Downloads a beautiful HTML report with all your challenge stats, daily logs, and progress.
+          </p>
+        </div>
+      </motion.div>
+
       {/* Danger zone */}
       <motion.div
         className="rounded-2xl p-5"
@@ -185,6 +251,51 @@ export default function SettingsScreen() {
             </div>
           </motion.div>
         )}
+
+        {/* Delete All Data */}
+        <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(220,38,38,0.2)' }}>
+          {!showConfirmDelete ? (
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowConfirmDelete(true)}
+              className="w-full py-3 rounded-xl text-sm font-bold text-red-400"
+              style={{ background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.4)' }}
+            >
+              🗑️ Delete All Data Permanently
+            </motion.button>
+          ) : (
+            <motion.div
+              className="flex flex-col gap-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              <p className="text-sm text-red-300 mb-1 font-bold">⚠️ This CANNOT be undone!</p>
+              <p className="text-xs text-red-300/70 mb-2">
+                All your data will be permanently deleted from this device AND from Supabase cloud,
+                including daily logs, progress photos, challenge stats, and profile info.
+              </p>
+              <div className="flex gap-2">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleDeleteAllData}
+                  disabled={deleting}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-white"
+                  style={{ background: 'rgba(220,38,38,0.7)', opacity: deleting ? 0.5 : 1 }}
+                >
+                  {deleting ? '⏳ Deleting...' : '🗑️ Yes, Delete Everything'}
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowConfirmDelete(false)}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-gray-300"
+                  style={{ background: 'rgba(255,255,255,0.08)' }}
+                >
+                  Cancel
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+        </div>
       </motion.div>
 
       {/* Account section */}

@@ -281,24 +281,44 @@ export default function TodayScreen() {
   const toggleReading = () => updateLog((p) => ({ ...p, readingDone: !p.readingDone }));
   const setBookTitle = (title: string) => updateLog((p) => ({ ...p, readingBook: title }));
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+
+  const handlePhotoSelected = async (file: File) => {
     setPhotoUploading(true);
-    const cloudUrl = await uploadProgressPhoto(file, log?.date ?? '');
-    if (cloudUrl) {
-      updateLog((p) => ({ ...p, progressPhotoUrl: cloudUrl }));
-      if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, cloudUrl);
-    } else {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const base64 = ev.target?.result as string;
-        updateLog((p) => ({ ...p, progressPhotoUrl: base64 }));
-        if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, base64);
-      };
-      reader.readAsDataURL(file);
+    setShowPhotoOptions(false);
+    try {
+      const cloudUrl = await uploadProgressPhoto(file, log?.date ?? '', appState.currentDay);
+      if (cloudUrl) {
+        updateLog((p) => ({ ...p, progressPhotoUrl: cloudUrl }));
+        if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, cloudUrl);
+      } else {
+        await new Promise<void>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const base64 = ev.target?.result as string;
+            updateLog((p) => ({ ...p, progressPhotoUrl: base64 }));
+            if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, base64);
+            resolve();
+          };
+          reader.onerror = () => resolve();
+          reader.readAsDataURL(file);
+        });
+      }
+    } finally {
+      setPhotoUploading(false);
     }
-    setPhotoUploading(false);
+  };
+
+  const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handlePhotoSelected(file);
+  };
+
+  const handleGalleryPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handlePhotoSelected(file);
   };
 
   const toggleCard = (id: string) => setExpandedCard((prev) => (prev === id ? null : id));
@@ -681,16 +701,70 @@ export default function TodayScreen() {
                     <p className="text-xs text-center" style={{ color: '#64748B' }}>
                       Snap your daily transformation pic — stored to Supabase cloud
                     </p>
-                    <label className="flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm cursor-pointer"
-                      style={{
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1.5px dashed rgba(255,255,255,0.1)',
-                        color: photoUploading ? '#00F5D4' : '#64748b',
-                      }}>
-                      <span>{photoUploading ? '⏳ Uploading...' : '📷 Upload Photo'}</span>
-                      <input type="file" accept="image/*" capture="environment"
-                        onChange={handlePhotoUpload} className="hidden" disabled={photoUploading} />
-                    </label>
+                    {photoUploading ? (
+                      <div className="flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm"
+                        style={{ background: 'rgba(0,245,212,0.06)', border: '1.5px solid rgba(0,245,212,0.2)', color: '#00F5D4' }}>
+                        <span className="animate-spin">⏳</span> Uploading...
+                      </div>
+                    ) : !showPhotoOptions ? (
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setShowPhotoOptions(true)}
+                        className="flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm cursor-pointer"
+                        style={{
+                          background: 'rgba(255,255,255,0.03)',
+                          border: '1.5px dashed rgba(255,255,255,0.1)',
+                          color: '#64748b',
+                        }}>
+                        📷 Add Photo
+                      </motion.button>
+                    ) : (
+                      <motion.div
+                        className="flex flex-col gap-2 w-full"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                      >
+                        {/* Take Photo (Camera) */}
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => cameraInputRef.current?.click()}
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm w-full"
+                          style={{
+                            background: 'rgba(255,107,53,0.08)',
+                            border: '1px solid rgba(255,107,53,0.25)',
+                            color: '#FF6B35',
+                          }}>
+                          📸 Take Photo
+                        </motion.button>
+
+                        {/* Upload from Gallery */}
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => galleryInputRef.current?.click()}
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm w-full"
+                          style={{
+                            background: 'rgba(0,245,212,0.06)',
+                            border: '1px solid rgba(0,245,212,0.2)',
+                            color: '#00F5D4',
+                          }}>
+                          🖼️ Choose from Gallery
+                        </motion.button>
+
+                        {/* Cancel */}
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => setShowPhotoOptions(false)}
+                          className="text-xs text-gray-500 py-1">
+                          Cancel
+                        </motion.button>
+
+                        {/* Hidden inputs */}
+                        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment"
+                          onChange={handleCameraCapture} className="hidden" />
+                        <input ref={galleryInputRef} type="file" accept="image/*"
+                          onChange={handleGalleryPick} className="hidden" />
+                      </motion.div>
+                    )}
                   </div>
                 )}
               </div>
