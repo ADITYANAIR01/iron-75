@@ -61,8 +61,12 @@ function AuthGate() {
 function shouldShowWrapped(currentDay: number): boolean {
   if (typeof window === 'undefined') return false;
   if (currentDay < 7) return false;
-  if (currentDay % 7 !== 0) return false;
-  const key = `iron75_wrapped_shown_week_${Math.floor(currentDay / 7)}`;
+  // Trigger at weekly milestones (7, 14, 21, …) and also at challenge end (75).
+  const isWeekEnd = currentDay % 7 === 0;
+  const isChallengeEnd = currentDay >= 75;
+  if (!isWeekEnd && !isChallengeEnd) return false;
+  const weekNum = isWeekEnd ? Math.floor(currentDay / 7) : Math.ceil(currentDay / 7);
+  const key = `iron75_wrapped_shown_week_${weekNum}`;
   return localStorage.getItem(key) !== '1';
 }
 
@@ -84,6 +88,9 @@ function AppShell() {
   const [wrappedWeek, setWrappedWeek] = useState(1);
   const [wrappedStartDate, setWrappedStartDate] = useState('');
   const [isDesktop, setIsDesktop] = useState(false);
+  // Blocks UI initialization until cloud sync completes, preventing stale-local
+  // state from overwriting newer cloud data on first load / new device.
+  const [syncReady, setSyncReady] = useState(false);
 
   // Detect screen size for responsive layout
   useEffect(() => {
@@ -93,17 +100,24 @@ function AppShell() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // Sync cloud → localStorage on mount + check for wrapped
+  // Sync cloud → localStorage FIRST, then check for wrapped.
+  // Awaiting the sync prevents TodayScreen from initializing with stale local
+  // state and pushing a blank log back to the cloud.
   useEffect(() => {
-    syncFromSupabase().catch(() => {});
-    const state = getAppState();
-    if (shouldShowWrapped(state.currentDay)) {
-      const weekNum = Math.floor(state.currentDay / 7);
-      setWrappedWeek(weekNum);
-      setWrappedStartDate(getWeekStartDate(state.currentDay, state.startDate));
-      // slight delay so app loads first
-      setTimeout(() => setShowWrapped(true), 1500);
-    }
+    syncFromSupabase()
+      .catch(() => {})
+      .finally(() => {
+        setSyncReady(true);
+        const state = getAppState();
+        if (shouldShowWrapped(state.currentDay)) {
+          const isWeekEnd = state.currentDay % 7 === 0;
+          const weekNum = isWeekEnd ? Math.floor(state.currentDay / 7) : Math.ceil(state.currentDay / 7);
+          setWrappedWeek(weekNum);
+          setWrappedStartDate(getWeekStartDate(state.currentDay, state.startDate));
+          // slight delay so app loads first
+          setTimeout(() => setShowWrapped(true), 1500);
+        }
+      });
   }, []);
 
   const handleDismissWrapped = () => {
@@ -226,7 +240,17 @@ function AppShell() {
             </div>
             <div className="flex items-center gap-2">
               <motion.button
-                onClick={() => setShowWrapped(true)}
+                onClick={() => {
+                  // Derive startDate on-demand if the milestone path didn't set it.
+                  if (!wrappedStartDate) {
+                    const state = getAppState();
+                    const day = Math.max(7, state.currentDay);
+                    const weekNum = Math.floor(day / 7);
+                    setWrappedWeek(weekNum);
+                    setWrappedStartDate(getWeekStartDate(day, state.startDate));
+                  }
+                  setShowWrapped(true);
+                }}
                 className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full"
                 style={{ background: 'rgba(255,107,53,0.15)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35' }}
                 whileTap={{ scale: 0.95 }}
@@ -248,6 +272,11 @@ function AppShell() {
             paddingBottom: isDesktop ? undefined : 'calc(84px + env(safe-area-inset-bottom, 16px))',
           }}
         >
+          {!syncReady ? (
+            <div className="flex items-center justify-center h-64">
+              <motion.div className="text-5xl" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>🔥</motion.div>
+            </div>
+          ) : (
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeTab}
@@ -265,6 +294,7 @@ function AppShell() {
               {activeTab === 'settings' && <SettingsScreen />}
             </motion.div>
           </AnimatePresence>
+          )}
         </main>
 
         {/* Bottom navigation (mobile only) */}

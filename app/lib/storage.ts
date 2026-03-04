@@ -19,14 +19,22 @@ const KEYS = {
 } as const;
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
+/** Returns YYYY-MM-DD in the user's LOCAL timezone, never UTC. */
+function localDateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function getToday(): string {
-  return new Date().toISOString().split('T')[0];
+  return localDateString(new Date());
 }
 
 export function getYesterday(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
+  return localDateString(d);
 }
 
 /** Returns day-of-week 0=Sun…6=Sat for a YYYY-MM-DD string */
@@ -136,10 +144,12 @@ export function getDailyLog(date: string): DailyLog | null {
 
 export function saveDailyLog(log: DailyLog): void {
   if (typeof window === 'undefined') return;
+  // Always recompute allTasksComplete so any caller (incl. WorkoutScreen) keeps it correct.
+  const committed: DailyLog = { ...log, allTasksComplete: checkAllTasksComplete(log) };
   // 1. Write to localStorage (instant, offline-first)
-  localStorage.setItem(KEYS.DAILY_LOG(log.date), JSON.stringify(log));
+  localStorage.setItem(KEYS.DAILY_LOG(committed.date), JSON.stringify(committed));
   // 2. Mirror to Supabase (fire-and-forget)
-  syncDailyLogToSupabase(log);
+  syncDailyLogToSupabase(committed);
 }
 
 async function syncDailyLogToSupabase(log: DailyLog): Promise<void> {
@@ -301,6 +311,11 @@ export async function uploadProgressPhoto(
       console.error('Photo upload error:', error.message);
       return null;
     }
+    const { data: signedData } = await supabase.storage
+      .from('progress-photos')
+      .createSignedUrl(path, 31536000); // 1-year expiry — private even if bucket is public
+    if (signedData?.signedUrl) return signedData.signedUrl;
+    // Fallback: public URL (only works if bucket allows public access)
     const { data } = supabase.storage.from('progress-photos').getPublicUrl(path);
     return data?.publicUrl ?? null;
   } catch (err) {

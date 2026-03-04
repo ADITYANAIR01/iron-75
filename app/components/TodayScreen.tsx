@@ -214,6 +214,9 @@ export default function TodayScreen() {
   const [mounted, setMounted] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const celebrationFiredRef = useRef(false);
+  // Monotonically increasing ID — incremented on every new photo upload and on
+  // removal so we can detect and discard results from stale async uploads.
+  const photoSessionRef = useRef(0);
 
   useEffect(() => {
     setMounted(true);
@@ -243,8 +246,8 @@ export default function TodayScreen() {
     if (log.allTasksComplete && !celebrationFiredRef.current) {
       celebrationFiredRef.current = true;
       setShowCelebration(true);
-      const newState = completeTodayStreak(appState);
-      setAppState(newState);
+      // Use functional updater to avoid stale-closure over appState.
+      setAppState((prev) => completeTodayStreak(prev));
       updateLog((prev) => ({ ...prev, celebrationShown: true }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,10 +289,13 @@ export default function TodayScreen() {
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
 
   const handlePhotoSelected = async (file: File) => {
+    const session = ++photoSessionRef.current;
     setPhotoUploading(true);
     setShowPhotoOptions(false);
     try {
       const cloudUrl = await uploadProgressPhoto(file, log?.date ?? '', appState.currentDay);
+      // Discard result if user removed/replaced photo while upload was in flight.
+      if (session !== photoSessionRef.current) return;
       if (cloudUrl) {
         updateLog((p) => ({ ...p, progressPhotoUrl: cloudUrl }));
         if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, cloudUrl);
@@ -297,6 +303,7 @@ export default function TodayScreen() {
         await new Promise<void>((resolve) => {
           const reader = new FileReader();
           reader.onload = (ev) => {
+            if (session !== photoSessionRef.current) { resolve(); return; }
             const base64 = ev.target?.result as string;
             updateLog((p) => ({ ...p, progressPhotoUrl: base64 }));
             if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, base64);
@@ -307,7 +314,7 @@ export default function TodayScreen() {
         });
       }
     } finally {
-      setPhotoUploading(false);
+      if (session === photoSessionRef.current) setPhotoUploading(false);
     }
   };
 
@@ -702,7 +709,12 @@ export default function TodayScreen() {
                       </div>
                     </div>
                     <motion.button whileTap={{ scale: 0.95 }}
-                      onClick={() => updateLog((p) => ({ ...p, progressPhotoUrl: '' }))}
+                      onClick={() => {
+                        // Invalidate any in-flight upload and clear photo cache key
+                        photoSessionRef.current++;
+                        if (log?.date) localStorage.removeItem(`iron75_photo_${log.date}`);
+                        updateLog((p) => ({ ...p, progressPhotoUrl: '' }));
+                      }}
                       className="text-xs text-red-400 underline">
                       Remove photo
                     </motion.button>

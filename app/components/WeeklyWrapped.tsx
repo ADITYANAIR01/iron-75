@@ -13,11 +13,21 @@ interface WeeklyWrappedProps {
 
 // ─── Helper — load 7 logs ────────────────────────────────────────────────────
 function loadWeekLogs(startDate: string): DailyLog[] {
+  // Guard: if startDate is empty or unparseable, bail rather than throwing
+  // RangeError on Invalid Date.toISOString() (happens when desktop button is
+  // clicked before the milestone auto-show path sets wrappedStartDate).
+  if (!startDate) return [];
+  const baseMs = new Date(startDate + 'T12:00:00').getTime();
+  if (isNaN(baseMs)) return [];
+
   const logs: DailyLog[] = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(startDate + 'T12:00:00');
+    const d = new Date(baseMs);
     d.setDate(d.getDate() + i);
-    const date = d.toISOString().split('T')[0];
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const da = String(d.getDate()).padStart(2, '0');
+    const date = `${y}-${mo}-${da}`;
     const raw = typeof window !== 'undefined' ? localStorage.getItem(`iron75_dailylog_${date}`) : null;
     if (raw) {
       try { logs.push(JSON.parse(raw)); } catch { /* skip */ }

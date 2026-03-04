@@ -21,7 +21,7 @@ export function initializeStreakOnLoad(): AppState {
   const yesterday = getYesterday();
 
   // First-ever launch: set start date
-  if (!state.startDate || state.startDate === getToday() && state.currentDay <= 1 && state.streak === 0) {
+  if (!state.startDate || (state.startDate === getToday() && state.currentDay <= 1 && state.streak === 0)) {
     state.startDate = getToday();
     saveAppState(state);
     return state;
@@ -36,6 +36,8 @@ export function initializeStreakOnLoad(): AppState {
       state.currentDay = 1;
       state.totalRestarts += 1;
       state.startDate = today;
+      // Clear stale goal date so it re-anchors to the new startDate.
+      if (typeof window !== 'undefined') localStorage.removeItem('iron75_goal_date');
       saveAppState(state);
     }
   }
@@ -48,6 +50,7 @@ export function initializeStreakOnLoad(): AppState {
       state.currentDay = 1;
       state.totalRestarts += 1;
       state.startDate = today;
+      if (typeof window !== 'undefined') localStorage.removeItem('iron75_goal_date');
       saveAppState(state);
     }
   }
@@ -74,10 +77,22 @@ export function completeTodayStreak(state: AppState): AppState {
   return updated;
 }
 
-/** Days remaining until target date (configurable via localStorage 'iron75_goal_date', defaults to 90 days from start) */
+/** Days remaining until target date (configurable via localStorage 'iron75_goal_date', defaults to 75 days from challenge start) */
 export function getDaysToGoal(): number {
   const raw = typeof window !== 'undefined' ? localStorage.getItem('iron75_goal_date') : null;
-  const target = raw ? new Date(raw + 'T00:00:00') : (() => { const d = new Date(); d.setDate(d.getDate() + 90); return d; })();
+  let target: Date;
+  if (raw) {
+    target = new Date(raw + 'T00:00:00');
+  } else {
+    // Anchor to startDate so the countdown actually counts down each day.
+    const state = getAppState();
+    target = new Date(state.startDate + 'T00:00:00');
+    target.setDate(target.getDate() + 75);
+    // Persist so every subsequent call uses the same fixed target.
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('iron75_goal_date', `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`);
+    }
+  }
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diff = target.getTime() - today.getTime();

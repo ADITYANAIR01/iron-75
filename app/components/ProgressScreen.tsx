@@ -525,11 +525,17 @@ export default function ProgressScreen() {
               for (let i = 0; i < currentDay && i < 75; i++) {
                 const d = new Date(startDate + 'T12:00:00');
                 d.setDate(d.getDate() + i);
-                const date = d.toISOString().split('T')[0];
-                const url = localStorage.getItem(`iron75_photo_${date}`) ?? (() => {
+                const y = d.getFullYear();
+                const mo = String(d.getMonth() + 1).padStart(2, '0');
+                const da = String(d.getDate()).padStart(2, '0');
+                const date = `${y}-${mo}-${da}`;
+                // Prefer the daily log URL (cleared on removal) over the cache key.
+                const url = (() => {
                   const raw = localStorage.getItem(`iron75_dailylog_${date}`);
-                  if (!raw) return null;
-                  try { const log = JSON.parse(raw); return log.progressPhotoUrl || null; } catch { return null; }
+                  if (raw) {
+                    try { const log = JSON.parse(raw); if (log.progressPhotoUrl) return log.progressPhotoUrl; } catch { /* skip */ }
+                  }
+                  return localStorage.getItem(`iron75_photo_${date}`) ?? null;
                 })();
                 if (url) photos.push({ date, url, day: i + 1 });
               }
