@@ -216,65 +216,65 @@ export function checkAllTasksComplete(log: DailyLog): boolean {
 // ─── Supabase → localStorage sync (call once after login) ──────────────────
 export async function syncFromSupabase(): Promise<void> {
   try {
-  const userId = await getSupabaseUserId();
-  if (!userId) return;
-  const supabase = createClient();
+    const userId = await getSupabaseUserId();
+    if (!userId) return;
+    const supabase = createClient();
 
-  // Sync app_state
-  const { data: stateRow } = await supabase
-    .from('app_state')
-    .select('*')
-    .eq('user_id', userId)
-    .single();
+    // Sync app_state
+    const { data: stateRow } = await supabase
+      .from('app_state')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
 
-  if (stateRow) {
-    localStorage.setItem(KEYS.STREAK, String(stateRow.streak));
-    localStorage.setItem(KEYS.DAY, String(stateRow.current_day));
-    localStorage.setItem(KEYS.START_DATE, stateRow.start_date);
-    localStorage.setItem(KEYS.LONGEST_STREAK, String(stateRow.longest_streak));
-    localStorage.setItem(KEYS.TOTAL_RESTARTS, String(stateRow.total_restarts));
-  }
-
-  // Sync daily_logs
-  const { data: logs } = await supabase
-    .from('daily_logs')
-    .select('*')
-    .eq('user_id', userId);
-
-  if (logs) {
-    for (const row of logs) {
-      const log: DailyLog = {
-        date: row.date,
-        gymWorkoutDone: row.gym_workout_done,
-        outdoorWalkDone: row.outdoor_walk_done,
-        waterLiters: row.water_liters,
-        waterGoalMet: row.water_goal_met,
-        readingDone: row.reading_done,
-        readingBook: row.reading_book ?? '',
-        dietSlots: row.diet_slots ?? { breakfast: '', lunch: '', dinner: '', snacks: '' },
-        moodEmoji: (row.mood_emoji ?? '') as MoodEmoji,
-        energyLevel: row.energy_level ?? 3,
-        motivationLevel: row.motivation_level ?? 3,
-        sorenessLevel: row.soreness_level ?? 3,
-        progressPhotoUrl: row.progress_photo_url ?? '',
-        allTasksComplete: row.all_tasks_complete,
-        celebrationShown: row.celebration_shown,
-        aiInsightShown: row.ai_insight_shown ?? '',
-      };
-      localStorage.setItem(KEYS.DAILY_LOG(log.date), JSON.stringify(log));
+    if (stateRow) {
+      localStorage.setItem(KEYS.STREAK, String(stateRow.streak));
+      localStorage.setItem(KEYS.DAY, String(stateRow.current_day));
+      localStorage.setItem(KEYS.START_DATE, stateRow.start_date);
+      localStorage.setItem(KEYS.LONGEST_STREAK, String(stateRow.longest_streak));
+      localStorage.setItem(KEYS.TOTAL_RESTARTS, String(stateRow.total_restarts));
     }
-  }
 
-  // Sync profile display name
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('display_name')
-    .eq('id', userId)
-    .single();
+    // Sync daily_logs
+    const { data: logs } = await supabase
+      .from('daily_logs')
+      .select('*')
+      .eq('user_id', userId);
 
-  if (profile?.display_name) {
-    localStorage.setItem('iron75_user_name', profile.display_name);
-  }
+    if (logs) {
+      for (const row of logs) {
+        const log: DailyLog = {
+          date: row.date,
+          gymWorkoutDone: row.gym_workout_done,
+          outdoorWalkDone: row.outdoor_walk_done,
+          waterLiters: row.water_liters,
+          waterGoalMet: row.water_goal_met,
+          readingDone: row.reading_done,
+          readingBook: row.reading_book ?? '',
+          dietSlots: row.diet_slots ?? { breakfast: '', lunch: '', dinner: '', snacks: '' },
+          moodEmoji: (row.mood_emoji ?? '') as MoodEmoji,
+          energyLevel: row.energy_level ?? 3,
+          motivationLevel: row.motivation_level ?? 3,
+          sorenessLevel: row.soreness_level ?? 3,
+          progressPhotoUrl: row.progress_photo_url ?? '',
+          allTasksComplete: row.all_tasks_complete,
+          celebrationShown: row.celebration_shown,
+          aiInsightShown: row.ai_insight_shown ?? '',
+        };
+        localStorage.setItem(KEYS.DAILY_LOG(log.date), JSON.stringify(log));
+      }
+    }
+
+    // Sync profile display name
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('display_name')
+      .eq('id', userId)
+      .single();
+
+    if (profile?.display_name) {
+      localStorage.setItem('iron75_user_name', profile.display_name);
+    }
   } catch (err) {
     console.warn('Supabase sync-down failed (offline?):', err);
   }
@@ -452,14 +452,86 @@ export function generateExportHTML(): string {
 </html>`;
 }
 
-// ─── Delete all data (localStorage + Supabase) ──────────────────────────────
-export async function deleteAllData(): Promise<void> {
-  // 1. Clear all Iron75 keys from localStorage
+// ─── Reset everything and schedule a fresh start on a given date ─────────────
+
+/** Keys that must never be wiped, no matter what reset is triggered. */
+const PROTECTED_KEYS = new Set(['iron75_user_name', 'iron75_fresh_start_used']);
+
+/**
+ * Wipes all daily logs + app_state from localStorage AND Supabase,
+ * then seeds a clean app_state with `startDate` so the first open on that
+ * date shows Day 1 with streak 0.  Display name and one-time-use flag are preserved.
+ */
+export async function resetForFreshStart(startDate: string): Promise<void> {
+  // 1. Remove all iron75_ keys except protected ones
   if (typeof window !== 'undefined') {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith('iron75_')) {
+      if (key && key.startsWith('iron75_') && !PROTECTED_KEYS.has(key)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  }
+
+  // 2. Seed localStorage with the clean fresh-start state
+  const fresh: AppState = {
+    streak: 0,
+    currentDay: 1,
+    startDate,
+    longestStreak: 0,
+    totalRestarts: 0,
+  };
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(KEYS.STREAK, '0');
+    localStorage.setItem(KEYS.DAY, '1');
+    localStorage.setItem(KEYS.START_DATE, startDate);
+    localStorage.setItem(KEYS.LONGEST_STREAK, '0');
+    localStorage.setItem(KEYS.TOTAL_RESTARTS, '0');
+    // Mark as used immediately — before any async work that could exit early
+    localStorage.setItem('iron75_fresh_start_used', 'true');
+  }
+
+  // 3. Mirror clean state to Supabase (fire-and-forget)
+  try {
+    const userId = await getSupabaseUserId();
+    if (!userId) return;
+    const supabase = createClient();
+    // Wipe all daily logs
+    await supabase.from('daily_logs').delete().eq('user_id', userId);
+    // Wipe progress photos
+    const { data: files } = await supabase.storage.from('progress-photos').list(userId);
+    if (files && files.length > 0) {
+      const paths = files.map((f) => `${userId}/${f.name}`);
+      await supabase.storage.from('progress-photos').remove(paths);
+    }
+    // Upsert clean app_state
+    await supabase.from('app_state').upsert(
+      {
+        user_id: userId,
+        streak: fresh.streak,
+        current_day: fresh.currentDay,
+        start_date: fresh.startDate,
+        longest_streak: fresh.longestStreak,
+        total_restarts: fresh.totalRestarts,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+  } catch (err) {
+    console.warn('Supabase fresh-start reset failed (offline?):', err);
+  }
+}
+
+// ─── Delete all data (localStorage + Supabase) ──────────────────────────────
+export async function deleteAllData(): Promise<void> {
+  // 1. Clear all Iron75 keys from localStorage (preserve protected keys)
+  if (typeof window !== 'undefined') {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('iron75_') && !PROTECTED_KEYS.has(key)) {
         keysToRemove.push(key);
       }
     }

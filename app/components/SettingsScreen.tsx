@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useRef } from 'react';
-import { getAppState, saveAppState, getToday, saveProfileName, generateExportHTML, deleteAllData } from '../lib/storage';
+import { getAppState, saveAppState, getToday, saveProfileName, generateExportHTML, deleteAllData, resetForFreshStart } from '../lib/storage';
 import { AppState } from '../lib/types';
 import { useAuth } from './AuthProvider';
 
@@ -11,7 +11,10 @@ export default function SettingsScreen() {
   const [state, setState] = useState<AppState | null>(null);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [showConfirmFreshStart, setShowConfirmFreshStart] = useState(false);
+  const [freshStartUsed, setFreshStartUsed] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [name, setName] = useState('');
   const [toast, setToast] = useState('');
 
@@ -19,6 +22,7 @@ export default function SettingsScreen() {
     setState(getAppState());
     const savedName = localStorage.getItem('iron75_user_name') ?? '';
     setName(savedName);
+    setFreshStartUsed(localStorage.getItem('iron75_fresh_start_used') === 'true');
   }, []);
 
   const handleNameSave = () => {
@@ -46,6 +50,34 @@ export default function SettingsScreen() {
     setShowConfirmReset(false);
     setToast('Challenge restarted. Day 1 begins today! 🔥');
     setTimeout(() => setToast(''), 3000);
+  };
+
+  const handleFreshStartTomorrow = async () => {
+    setResetting(true);
+    try {
+      // Tomorrow's date in local timezone
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const y = tomorrow.getFullYear();
+      const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
+      const d = String(tomorrow.getDate()).padStart(2, '0');
+      const tomorrowStr = `${y}-${m}-${d}`;
+
+      await resetForFreshStart(tomorrowStr);
+      setState(getAppState());
+      setFreshStartUsed(true);
+      setShowConfirmFreshStart(false);
+      setToast(`All data wiped! Day 1 starts ${tomorrowStr} 🔥`);
+      setTimeout(() => {
+        setToast('');
+        window.location.reload();
+      }, 3000);
+    } catch {
+      setToast('Reset failed. Please try again.');
+      setTimeout(() => setToast(''), 3000);
+    } finally {
+      setResetting(false);
+    }
   };
 
   const handleExportData = () => {
@@ -212,6 +244,59 @@ export default function SettingsScreen() {
         transition={{ delay: 0.25 }}
       >
         <h2 className="font-bold text-sm text-red-400 uppercase tracking-wide mb-3">Danger Zone</h2>
+
+        {/* Fresh Start Tomorrow — one-time only */}
+        <div className="mb-4 pb-4" style={{ borderBottom: '1px solid rgba(220,38,38,0.2)' }}>
+          {freshStartUsed ? (
+            <div
+              className="w-full py-3 px-4 rounded-xl text-sm flex items-center gap-3"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <span className="text-lg">🔒</span>
+              <div>
+                <p className="font-bold text-gray-400 text-xs">Already Used</p>
+                <p className="text-gray-500 text-xs mt-0.5">Fresh start was applied. This action can only be done once.</p>
+              </div>
+            </div>
+          ) : !showConfirmFreshStart ? (
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowConfirmFreshStart(true)}
+              className="w-full py-3 rounded-xl text-sm font-bold"
+              style={{ background: 'rgba(255,107,53,0.15)', border: '1px solid rgba(255,107,53,0.5)', color: '#FF6B35' }}
+            >
+              🚀 Reset Everything & Start Fresh Tomorrow
+            </motion.button>
+          ) : (
+            <motion.div className="flex flex-col gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <p className="text-sm font-bold" style={{ color: '#FF6B35' }}>⚠️ This wipes ALL test data!</p>
+              <p className="text-xs text-red-300/70 mb-2">
+                All daily logs, streaks, and progress photos will be permanently deleted from this
+                device and Supabase. Your account stays. Day 1 will be set to tomorrow.
+                This can only be done <strong>once</strong>.
+              </p>
+              <div className="flex gap-2">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleFreshStartTomorrow}
+                  disabled={resetting}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-white"
+                  style={{ background: 'rgba(255,107,53,0.6)', opacity: resetting ? 0.5 : 1 }}
+                >
+                  {resetting ? '⏳ Resetting...' : '🚀 Yes, Fresh Start Tomorrow'}
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowConfirmFreshStart(false)}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-gray-300"
+                  style={{ background: 'rgba(255,255,255,0.08)' }}
+                >
+                  Cancel
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+        </div>
 
         {!showConfirmReset ? (
           <motion.button
