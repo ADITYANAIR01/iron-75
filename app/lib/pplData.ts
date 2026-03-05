@@ -283,7 +283,7 @@ export const SESSIONS: Record<string, SessionSpec> = {
         sets: 3,
         repRange: '10–12',
         rest: '90s',
-        tip: 'Stand with feet together (toes together). Brace core hard, press overhead. Keeping toes together eliminates leg drive and forces strict shoulder work.',
+        tip: 'Stand with toes together and brace your core hard, then press overhead. Keeping toes together eliminates leg drive and forces strict shoulder work.',
         targetMuscle: 'Front & Side Delts',
       },
       {

@@ -313,7 +313,7 @@ export function compressImage(
       if (!ctx) { resolve(file); return; }
       ctx.drawImage(img, 0, 0, w, h);
       canvas.toBlob(
-        (blob) => { blob ? resolve(blob) : resolve(file); },
+        (blob) => { resolve(blob ?? file); },
         'image/jpeg',
         quality
       );
@@ -336,8 +336,9 @@ export async function uploadProgressPhoto(
     // Compress before upload to avoid low-memory errors on large camera files
     let uploadBlob: Blob = file;
     try { uploadBlob = await compressImage(file); } catch { /* fall back to original */ }
+    // Always use .jpg extension since we compress to JPEG
     const renamedFile = renamePhotoWithMetadata(
-      new File([uploadBlob], file.name, { type: 'image/jpeg', lastModified: Date.now() }),
+      new File([uploadBlob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg', lastModified: Date.now() }),
       date,
       dayNumber
     );

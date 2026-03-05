@@ -28,8 +28,9 @@ export default function SettingsScreen() {
         user.user_metadata?.name ??
         '';
       if (googleName) {
+        // Store locally so it persists on reload; user can edit and save to cloud later
+        localStorage.setItem('iron75_user_name', googleName);
         setName(googleName);
-        saveProfileName(googleName);
       } else {
         setName('');
       }
