@@ -37,4 +37,16 @@ export interface AppState {
   totalRestarts: number;
 }
 
+// ─── Workout set/exercise tracking ─────────────────────────────────────────
+export interface SetState {
+  done: boolean;
+  reps: string;
+}
+
+export interface ExerciseState {
+  sets: SetState[];
+  notes: string;
+  expanded: boolean;
+}
+
 export type TabId = 'today' | 'workout' | 'progress' | 'ai' | 'roadmap' | 'settings';

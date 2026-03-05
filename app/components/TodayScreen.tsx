@@ -299,7 +299,6 @@ export default function TodayScreen() {
       if (session !== photoSessionRef.current) return;
       if (cloudUrl) {
         updateLog((p) => ({ ...p, progressPhotoUrl: cloudUrl }));
-        if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, cloudUrl);
       } else {
         // Fallback: compress the image first to avoid low-memory errors when
         // storing a large base64 data URL in localStorage.
@@ -311,7 +310,6 @@ export default function TodayScreen() {
             if (session !== photoSessionRef.current) { resolve(); return; }
             const base64 = ev.target?.result as string;
             updateLog((p) => ({ ...p, progressPhotoUrl: base64 }));
-            if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, base64);
             resolve();
           };
           reader.onerror = () => resolve();
@@ -717,7 +715,6 @@ export default function TodayScreen() {
                       onClick={() => {
                         // Invalidate any in-flight upload and clear photo cache key
                         photoSessionRef.current++;
-                        if (log?.date) localStorage.removeItem(`iron75_photo_${log.date}`);
                         updateLog((p) => ({ ...p, progressPhotoUrl: '' }));
                       }}
                       className="text-xs text-red-400 underline">

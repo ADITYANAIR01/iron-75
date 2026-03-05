@@ -4,6 +4,7 @@
 // week. Unassigned days fall back to the default PPL rotation.
 
 import { SESSIONS, DOW_TO_SESSION, SessionSpec, ExerciseSpec } from './pplData';
+import { createClient } from './supabase';
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
 const CUSTOM_SESSIONS_KEY = 'iron75_custom_sessions';
@@ -76,6 +77,7 @@ export function getCustomSessions(): CustomSession[] {
 export function saveCustomSessions(sessions: CustomSession[]): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(sessions));
+  syncCustomWorkoutsToSupabase();
 }
 
 // ── CRUD: Day Assignments ─────────────────────────────────────────────────────
@@ -92,6 +94,70 @@ export function getDayAssignments(): DayAssignments {
 export function saveDayAssignments(assignments: DayAssignments): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(assignments));
+  syncCustomWorkoutsToSupabase();
+}
+
+// ── Supabase sync for custom workouts ─────────────────────────────────────────
+async function syncCustomWorkoutsToSupabase(): Promise<void> {
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const sessions = getCustomSessions();
+    const assignments = getDayAssignments();
+    await supabase.from('app_state').upsert(
+      {
+        user_id: user.id,
+        custom_sessions: sessions,
+        day_assignments: assignments,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+  } catch {
+    // Offline — will sync on next syncFromSupabase() call
+  }
+}
+
+/** Pull custom workouts from Supabase into localStorage. Called from syncFromSupabase(). */
+export async function syncCustomWorkoutsFromSupabase(): Promise<void> {
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: row } = await supabase
+      .from('app_state')
+      .select('custom_sessions, day_assignments')
+      .eq('user_id', user.id)
+      .single();
+    if (!row) return;
+    // Only pull if cloud has data and local is empty or cloud has more content
+    if (row.custom_sessions) {
+      const cloudSessions = row.custom_sessions as CustomSession[];
+      const localSessions = getCustomSessions();
+      // If local has no custom sessions, or cloud has sessions and local doesn't match, prefer cloud
+      if (localSessions.length === 0 && cloudSessions.length > 0) {
+        localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(cloudSessions));
+      } else if (localSessions.length > 0 && cloudSessions.length === 0) {
+        // Local has data cloud doesn't — push up
+        syncCustomWorkoutsToSupabase();
+      }
+      // If both have data, keep local (user was editing) — it will push up on next save
+    }
+    if (row.day_assignments) {
+      const cloudAssignments = row.day_assignments as DayAssignments;
+      const localAssignments = getDayAssignments();
+      const localKeys = Object.keys(localAssignments);
+      const cloudKeys = Object.keys(cloudAssignments);
+      if (localKeys.length === 0 && cloudKeys.length > 0) {
+        localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(cloudAssignments));
+      } else if (localKeys.length > 0 && cloudKeys.length === 0) {
+        syncCustomWorkoutsToSupabase();
+      }
+    }
+  } catch {
+    // Offline — skip
+  }
 }
 
 // ── Resolve session for a given day-of-week ───────────────────────────────────

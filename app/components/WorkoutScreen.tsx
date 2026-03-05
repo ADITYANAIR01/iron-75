@@ -3,28 +3,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SESSIONS, SessionSpec, ExerciseSpec } from '../lib/pplData';
-import { getToday, saveDailyLog, getOrCreateTodayLog, getDayOfWeek } from '../lib/storage';
+import { getToday, saveDailyLog, getOrCreateTodayLog, getDayOfWeek, getWorkoutState, saveWorkoutState, isWorkoutComplete, markWorkoutComplete } from '../lib/storage';
 import { getSessionForDow, getAllSessionSpecs, getSessionById } from '../lib/customWorkouts';
 import WorkoutPlanner from './WorkoutPlanner';
-
-// ─── Set tracker type ────────────────────────────────────────────────────────
-interface SetState {
-  done: boolean;
-  reps: string;
-}
-
-interface ExerciseState {
-  sets: SetState[];
-  notes: string;
-  expanded: boolean;
-}
+import type { SetState, ExerciseState } from '../lib/types';
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 function loadWorkoutState(date: string, session: SessionSpec): Record<string, ExerciseState> {
-  try {
-    const raw = localStorage.getItem(`iron75_workout_state_${date}_${session.key}`);
-    if (raw) return JSON.parse(raw);
-  } catch { /* empty */ }
+  const saved = getWorkoutState(date, session.key);
+  if (saved) return saved;
   const init: Record<string, ExerciseState> = {};
   session.exercises.forEach((ex) => {
     init[ex.name] = {
@@ -34,10 +21,6 @@ function loadWorkoutState(date: string, session: SessionSpec): Record<string, Ex
     };
   });
   return init;
-}
-
-function saveWorkoutState(date: string, sessionKey: string, state: Record<string, ExerciseState>) {
-  localStorage.setItem(`iron75_workout_state_${date}_${sessionKey}`, JSON.stringify(state));
 }
 
 // ─── Exercise Card ────────────────────────────────────────────────────────────
@@ -277,8 +260,7 @@ export default function WorkoutScreen() {
   useEffect(() => {
     if (!mounted) return;
     setExerciseStates(loadWorkoutState(today, session));
-    const completedKey = `iron75_workout_complete_${today}_${session.key}`;
-    setSessionComplete(localStorage.getItem(completedKey) === '1');
+    setSessionComplete(isWorkoutComplete(today, session.key));
   }, [selectedSessionKey, mounted, today, session]);
 
   const updateExercise = useCallback(
@@ -301,11 +283,10 @@ export default function WorkoutScreen() {
         (exerciseStates[ex.name]?.sets ?? []).every((s) => s.done)
     );
     if (allDone) {
-      const completedKey = `iron75_workout_complete_${today}_${session.key}`;
-      if (localStorage.getItem(completedKey) !== '1') {
+      if (!isWorkoutComplete(today, session.key)) {
         const log = getOrCreateTodayLog();
         saveDailyLog({ ...log, gymWorkoutDone: true });
-        localStorage.setItem(completedKey, '1');
+        markWorkoutComplete(today, session.key);
         setSessionComplete(true);
       }
     }
@@ -323,7 +304,8 @@ export default function WorkoutScreen() {
   const handleCompleteSession = () => {
     const log = getOrCreateTodayLog();
     saveDailyLog({ ...log, gymWorkoutDone: true });
-    localStorage.setItem(`iron75_workout_complete_${today}_${session.key}`, '1');
+    markWorkoutComplete(today, session.key);
+    saveWorkoutState(today, session.key, exerciseStates, true);
     setSessionComplete(true);
   };
 

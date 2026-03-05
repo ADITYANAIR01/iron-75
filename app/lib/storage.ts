@@ -5,8 +5,9 @@
 // asynchronously (fire-and-forget). Reads always come from localStorage first,
 // with a background sync-down on app load via syncFromSupabase().
 
-import { DailyLog, AppState, MoodEmoji } from './types';
+import { DailyLog, AppState, MoodEmoji, ExerciseState } from './types';
 import { createClient } from './supabase';
+import { syncCustomWorkoutsFromSupabase } from './customWorkouts';
 
 // ── Key helpers ───────────────────────────────────────────────────────────────
 const KEYS = {
@@ -17,6 +18,10 @@ const KEYS = {
   TOTAL_RESTARTS: 'iron75_total_restarts',
   APP_STATE_UPDATED_AT: 'iron75_app_state_updated_at',
   DAILY_LOG: (date: string) => `iron75_dailylog_${date}`,
+  WORKOUT_STATE: (date: string, sessionKey: string) => `iron75_workout_state_${date}_${sessionKey}`,
+  WORKOUT_COMPLETE: (date: string, sessionKey: string) => `iron75_workout_complete_${date}_${sessionKey}`,
+  WORKOUT_TS: (date: string, sessionKey: string) => `iron75_workout_ts_${date}_${sessionKey}`,
+  WRAPPED_SHOWN: 'iron75_wrapped_shown_weeks',
 } as const;
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -58,8 +63,8 @@ async function getSupabaseUserId(): Promise<string | null> {
 const PENDING_SYNC_KEY = 'iron75_pending_sync';
 
 interface PendingSyncEntry {
-  type: 'app_state' | 'daily_log';
-  /** For daily_log entries this is the log date; for app_state it's "app_state". */
+  type: 'app_state' | 'daily_log' | 'workout_state';
+  /** For daily_log entries this is the log date; for app_state it's "app_state"; for workout_state it's "date_sessionKey". */
   key: string;
 }
 
@@ -101,6 +106,20 @@ async function flushPendingSyncQueue(): Promise<void> {
       } else if (entry.type === 'daily_log') {
         const log = getDailyLog(entry.key);
         if (log) await syncDailyLogToSupabase(log, log.updatedAt);
+      } else if (entry.type === 'workout_state') {
+        // key format: "date_sessionKey"
+        const sep = entry.key.indexOf('_');
+        if (sep > 0) {
+          const date = entry.key.slice(0, sep);
+          const sessionKey = entry.key.slice(sep + 1);
+          const raw = typeof window !== 'undefined' ? localStorage.getItem(KEYS.WORKOUT_STATE(date, sessionKey)) : null;
+          if (raw) {
+            const exercises = JSON.parse(raw);
+            const completed = typeof window !== 'undefined' && localStorage.getItem(KEYS.WORKOUT_COMPLETE(date, sessionKey)) === '1';
+            const ts = typeof window !== 'undefined' ? localStorage.getItem(KEYS.WORKOUT_TS(date, sessionKey)) ?? undefined : undefined;
+            await syncWorkoutToSupabase(date, sessionKey, exercises, completed, ts);
+          }
+        }
       }
       removeFromPendingSync(entry);
     } catch {
@@ -292,6 +311,141 @@ export function checkAllTasksComplete(log: DailyLog): boolean {
   );
 }
 
+// ── Weekly Wrapped shown tracking ───────────────────────────────────────────
+function getWrappedShownWeeks(): number[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(KEYS.WRAPPED_SHOWN);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+export function isWrappedShown(weekNum: number): boolean {
+  return getWrappedShownWeeks().includes(weekNum);
+}
+
+export function markWrappedShown(weekNum: number): void {
+  if (typeof window === 'undefined') return;
+  const weeks = getWrappedShownWeeks();
+  if (!weeks.includes(weekNum)) {
+    weeks.push(weekNum);
+    localStorage.setItem(KEYS.WRAPPED_SHOWN, JSON.stringify(weeks));
+    syncWrappedShownToSupabase(weeks);
+  }
+}
+
+async function syncWrappedShownToSupabase(weeks: number[]): Promise<void> {
+  try {
+    const userId = await getSupabaseUserId();
+    if (!userId) return;
+    const supabase = createClient();
+    await supabase.from('app_state').upsert(
+      { user_id: userId, wrapped_shown_weeks: weeks, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+  } catch { /* offline */ }
+}
+
+// ── Workout state (per-session exercise sets/reps/notes) ────────────────────
+export function getWorkoutState(date: string, sessionKey: string): Record<string, ExerciseState> | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem(KEYS.WORKOUT_STATE(date, sessionKey));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Record<string, ExerciseState>;
+  } catch { return null; }
+}
+
+export function isWorkoutComplete(date: string, sessionKey: string): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem(KEYS.WORKOUT_COMPLETE(date, sessionKey)) === '1';
+}
+
+export function saveWorkoutState(
+  date: string,
+  sessionKey: string,
+  exercises: Record<string, ExerciseState>,
+  completed?: boolean
+): void {
+  if (typeof window === 'undefined') return;
+  const now = new Date().toISOString();
+  localStorage.setItem(KEYS.WORKOUT_STATE(date, sessionKey), JSON.stringify(exercises));
+  localStorage.setItem(KEYS.WORKOUT_TS(date, sessionKey), now);
+  if (completed) {
+    localStorage.setItem(KEYS.WORKOUT_COMPLETE(date, sessionKey), '1');
+  }
+  syncWorkoutToSupabase(date, sessionKey, exercises, completed ?? isWorkoutComplete(date, sessionKey), now);
+}
+
+export function markWorkoutComplete(date: string, sessionKey: string): void {
+  if (typeof window === 'undefined') return;
+  const now = new Date().toISOString();
+  localStorage.setItem(KEYS.WORKOUT_COMPLETE(date, sessionKey), '1');
+  localStorage.setItem(KEYS.WORKOUT_TS(date, sessionKey), now);
+  const exercises = getWorkoutState(date, sessionKey) ?? {};
+  syncWorkoutToSupabase(date, sessionKey, exercises, true, now);
+}
+
+async function syncWorkoutToSupabase(
+  date: string,
+  sessionKey: string,
+  exercises: Record<string, ExerciseState>,
+  completed: boolean,
+  updatedAt?: string
+): Promise<void> {
+  const pendingKey = `${date}_${sessionKey}`;
+  try {
+    const userId = await getSupabaseUserId();
+    if (!userId) {
+      addToPendingSync({ type: 'workout_state', key: pendingKey });
+      return;
+    }
+    const supabase = createClient();
+    const ts = updatedAt ?? new Date().toISOString();
+    const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][getDayOfWeek(date)];
+
+    // Check if row already exists for this user+date+session_type
+    const { data: existing } = await supabase
+      .from('workout_sessions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .eq('session_type', sessionKey);
+
+    const payload = {
+      user_id: userId,
+      date,
+      session_type: sessionKey,
+      day_of_week: dayOfWeek,
+      exercises,
+      completed,
+      updated_at: ts,
+    };
+
+    let error;
+    if (existing && existing.length > 0) {
+      ({ error } = await supabase
+        .from('workout_sessions')
+        .update({ exercises, completed, updated_at: ts })
+        .eq('id', existing[0].id));
+    } else {
+      ({ error } = await supabase
+        .from('workout_sessions')
+        .insert(payload));
+    }
+
+    if (error) {
+      console.warn('Supabase workout_sessions upsert error:', error.message);
+      addToPendingSync({ type: 'workout_state', key: pendingKey });
+    } else {
+      removeFromPendingSync({ type: 'workout_state', key: pendingKey });
+    }
+  } catch (err) {
+    console.warn('Supabase workout sync failed (offline?):', err);
+    addToPendingSync({ type: 'workout_state', key: pendingKey });
+  }
+}
+
 // ─── Supabase → localStorage sync (call once after login) ──────────────────
 export async function syncFromSupabase(): Promise<void> {
   try {
@@ -329,6 +483,14 @@ export async function syncFromSupabase(): Promise<void> {
         localStorage.setItem(KEYS.LONGEST_STREAK, String(stateRow.longest_streak));
         localStorage.setItem(KEYS.TOTAL_RESTARTS, String(stateRow.total_restarts));
         localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, cloudTs || new Date().toISOString());
+        // Pull wrapped_shown_weeks from cloud
+        if (stateRow.wrapped_shown_weeks) {
+          const cloudWeeks = stateRow.wrapped_shown_weeks as number[];
+          const localWeeks = getWrappedShownWeeks();
+          // Merge: union of both sets
+          const merged = [...new Set([...localWeeks, ...cloudWeeks])];
+          localStorage.setItem(KEYS.WRAPPED_SHOWN, JSON.stringify(merged));
+        }
       }
     } else if (localAppStateUpdatedAt) {
       // No cloud state but we have local data → push it up
@@ -426,6 +588,84 @@ export async function syncFromSupabase(): Promise<void> {
     if (profile?.display_name) {
       localStorage.setItem('iron75_user_name', profile.display_name);
     }
+
+    // Sync workout_sessions — compare per (date+session_type) timestamps
+    const { data: cloudWorkouts } = await supabase
+      .from('workout_sessions')
+      .select('*')
+      .eq('user_id', userId);
+
+    // Build a map of cloud workouts by "date_sessionType"
+    const cloudWorkoutMap = new Map<string, Record<string, unknown>>();
+    if (cloudWorkouts) {
+      for (const row of cloudWorkouts) {
+        cloudWorkoutMap.set(`${row.date}_${row.session_type}`, row);
+      }
+    }
+
+    // Collect all local workout state keys
+    const localWorkoutKeys = new Set<string>();
+    if (typeof window !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('iron75_workout_state_')) {
+          // key format: iron75_workout_state_YYYY-MM-DD_sessionKey
+          const suffix = key.replace('iron75_workout_state_', '');
+          // date is first 10 chars (YYYY-MM-DD), sessionKey is the rest after the underscore
+          const date = suffix.slice(0, 10);
+          const sessionKey = suffix.slice(11);
+          if (date && sessionKey) localWorkoutKeys.add(`${date}_${sessionKey}`);
+        }
+      }
+    }
+
+    // Merge cloud workouts with local
+    if (cloudWorkouts) {
+      for (const row of cloudWorkouts) {
+        const compositeKey = `${row.date}_${row.session_type}`;
+        const localTs = typeof window !== 'undefined'
+          ? localStorage.getItem(KEYS.WORKOUT_TS(row.date, row.session_type)) ?? ''
+          : '';
+        const cloudTs = row.updated_at ?? '';
+
+        if (localTs && cloudTs && localTs > cloudTs) {
+          // Local is newer → push up
+          const localExercises = getWorkoutState(row.date, row.session_type);
+          const localCompleted = isWorkoutComplete(row.date, row.session_type);
+          if (localExercises) {
+            syncWorkoutToSupabase(row.date, row.session_type, localExercises, localCompleted, localTs);
+          }
+        } else {
+          // Cloud is newer → pull down
+          localStorage.setItem(
+            KEYS.WORKOUT_STATE(row.date, row.session_type),
+            JSON.stringify(row.exercises ?? {})
+          );
+          if (row.completed) {
+            localStorage.setItem(KEYS.WORKOUT_COMPLETE(row.date, row.session_type), '1');
+          }
+          localStorage.setItem(KEYS.WORKOUT_TS(row.date, row.session_type), cloudTs || new Date().toISOString());
+        }
+        localWorkoutKeys.delete(compositeKey);
+      }
+    }
+
+    // Push any local-only workout states up to Supabase
+    for (const compositeKey of localWorkoutKeys) {
+      const sep = compositeKey.indexOf('_');
+      if (sep <= 0) continue;
+      const date = compositeKey.slice(0, sep);
+      const sessionKey = compositeKey.slice(sep + 1);
+      const localExercises = getWorkoutState(date, sessionKey);
+      if (localExercises) {
+        const completed = isWorkoutComplete(date, sessionKey);
+        const ts = typeof window !== 'undefined' ? localStorage.getItem(KEYS.WORKOUT_TS(date, sessionKey)) ?? undefined : undefined;
+        syncWorkoutToSupabase(date, sessionKey, localExercises, completed, ts);
+      }
+    }
+
+    // Sync custom workout definitions & day assignments
+    await syncCustomWorkoutsFromSupabase();
   } catch (err) {
     console.warn('Supabase sync-down failed (offline?):', err);
   }
@@ -694,6 +934,8 @@ export async function resetForFreshStart(startDate: string): Promise<void> {
     const supabase = createClient();
     // Wipe all daily logs
     await supabase.from('daily_logs').delete().eq('user_id', userId);
+    // Wipe all workout sessions
+    await supabase.from('workout_sessions').delete().eq('user_id', userId);
     // Wipe progress photos
     const { data: files } = await supabase.storage.from('progress-photos').list(userId);
     if (files && files.length > 0) {
@@ -742,6 +984,8 @@ export async function deleteAllData(): Promise<void> {
 
     // Delete daily logs
     await supabase.from('daily_logs').delete().eq('user_id', userId);
+    // Delete workout sessions
+    await supabase.from('workout_sessions').delete().eq('user_id', userId);
     // Delete app state
     await supabase.from('app_state').delete().eq('user_id', userId);
     // Delete profile

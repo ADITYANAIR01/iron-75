@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS public.app_state (
   start_date DATE DEFAULT CURRENT_DATE,
   longest_streak INTEGER DEFAULT 0,
   total_restarts INTEGER DEFAULT 0,
+  custom_sessions JSONB DEFAULT '[]',
+  day_assignments JSONB DEFAULT '{}',
+  wrapped_shown_weeks JSONB DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id)
@@ -395,6 +398,19 @@ CREATE TRIGGER on_auth_user_created
 ### Google OAuth not working
 - Ensure the redirect URI in Google Cloud Console matches: `https://<project-id>.supabase.co/auth/v1/callback`
 - Check that Google provider is enabled in Supabase dashboard.
+
+---
+
+## 12. Migration: Add Custom Workouts & Wrapped Sync Columns
+
+If you already created the `app_state` table before these columns were added, run this migration in the SQL Editor:
+
+```sql
+-- Add JSONB columns for custom workout definitions, day assignments, and wrapped tracking
+ALTER TABLE public.app_state ADD COLUMN IF NOT EXISTS custom_sessions JSONB DEFAULT '[]';
+ALTER TABLE public.app_state ADD COLUMN IF NOT EXISTS day_assignments JSONB DEFAULT '{}';
+ALTER TABLE public.app_state ADD COLUMN IF NOT EXISTS wrapped_shown_weeks JSONB DEFAULT '[]';
+```
 
 ### Data not syncing to Supabase
 - Open browser DevTools → Console and look for Supabase errors.

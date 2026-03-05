@@ -529,8 +529,7 @@ export default function ProgressScreen() {
                 // Prefer the daily log URL (cleared on removal) over the cache key.
                 const url = (() => {
                   const log = getDailyLog(date);
-                  if (log?.progressPhotoUrl) return log.progressPhotoUrl;
-                  return typeof window !== 'undefined' ? localStorage.getItem(`iron75_photo_${date}`) : null;
+                  return log?.progressPhotoUrl || null;
                 })();
                 if (url) photos.push({ date, url, day: i + 1 });
               }

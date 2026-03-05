@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import { TabId } from './lib/types';
 import { AuthProvider, useAuth } from './components/AuthProvider';
-import { syncFromSupabase, getAppState } from './lib/storage';
+import { syncFromSupabase, getAppState, isWrappedShown, markWrappedShown as markWrappedShownStorage } from './lib/storage';
 
 // ─── Lazy-load screens ────────────────────────────────────────────────────────
 const LoginScreen = dynamic(() => import('./components/LoginScreen'), { ssr: false });
@@ -66,12 +66,11 @@ function shouldShowWrapped(currentDay: number): boolean {
   const isChallengeEnd = currentDay >= 75;
   if (!isWeekEnd && !isChallengeEnd) return false;
   const weekNum = isWeekEnd ? Math.floor(currentDay / 7) : Math.ceil(currentDay / 7);
-  const key = `iron75_wrapped_shown_week_${weekNum}`;
-  return localStorage.getItem(key) !== '1';
+  return !isWrappedShown(weekNum);
 }
 
 function markWrappedShown(weekNum: number) {
-  localStorage.setItem(`iron75_wrapped_shown_week_${weekNum}`, '1');
+  markWrappedShownStorage(weekNum);
 }
 
 function getWeekStartDate(currentDay: number, startDate: string): string {
