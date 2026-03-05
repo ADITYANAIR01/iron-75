@@ -17,6 +17,7 @@ import {
   Legend,
 } from 'recharts';
 import { DailyLog } from '../lib/types';
+import { getDailyLog, getAppState } from '../lib/storage';
 
 // ─── Internal types ────────────────────────────────────────────────────────────
 interface DayStatus {
@@ -82,12 +83,8 @@ function buildDayStatuses(startDate: string, currentDay: number): DayStatus[] {
       continue;
     }
     const isToday = dayNum === currentDay;
-    const raw =
-      typeof window !== 'undefined'
-        ? localStorage.getItem(`iron75_dailylog_${date}`)
-        : null;
-    if (raw) {
-      const log: DailyLog = JSON.parse(raw);
+    const log = getDailyLog(date);
+    if (log) {
       const tasks = countTasks(log);
       days.push({
         day: dayNum,
@@ -323,10 +320,9 @@ export default function ProgressScreen() {
 
   useEffect(() => {
     setMounted(true);
-    const startDate =
-      localStorage.getItem('iron75_start_date') ??
-      new Date().toISOString().split('T')[0];
-    const currentDay = parseInt(localStorage.getItem('iron75_day') ?? '1', 10);
+    const appSt = getAppState();
+    const startDate = appSt.startDate;
+    const currentDay = appSt.currentDay;
     const d = buildDayStatuses(startDate, currentDay);
     setDays(d);
     setChartData(buildChartData(d));
@@ -520,8 +516,9 @@ export default function ProgressScreen() {
             {/* Photo grid */}
             {(() => {
               const photos: { date: string; url: string; day: number }[] = [];
-              const startDate = localStorage.getItem('iron75_start_date') ?? new Date().toISOString().split('T')[0];
-              const currentDay = parseInt(localStorage.getItem('iron75_day') ?? '1', 10);
+              const appSt = getAppState();
+              const startDate = appSt.startDate;
+              const currentDay = appSt.currentDay;
               for (let i = 0; i < currentDay && i < 75; i++) {
                 const d = new Date(startDate + 'T12:00:00');
                 d.setDate(d.getDate() + i);
@@ -531,11 +528,9 @@ export default function ProgressScreen() {
                 const date = `${y}-${mo}-${da}`;
                 // Prefer the daily log URL (cleared on removal) over the cache key.
                 const url = (() => {
-                  const raw = localStorage.getItem(`iron75_dailylog_${date}`);
-                  if (raw) {
-                    try { const log = JSON.parse(raw); if (log.progressPhotoUrl) return log.progressPhotoUrl; } catch { /* skip */ }
-                  }
-                  return localStorage.getItem(`iron75_photo_${date}`) ?? null;
+                  const log = getDailyLog(date);
+                  if (log?.progressPhotoUrl) return log.progressPhotoUrl;
+                  return typeof window !== 'undefined' ? localStorage.getItem(`iron75_photo_${date}`) : null;
                 })();
                 if (url) photos.push({ date, url, day: i + 1 });
               }

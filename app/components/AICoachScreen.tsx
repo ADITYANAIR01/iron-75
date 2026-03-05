@@ -102,8 +102,8 @@ export default function AICoachScreen() {
         const d = new Date(today);
         d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().split('T')[0];
-        const raw = localStorage.getItem(`iron75_dailylog_${dateStr}`);
-        if (raw) { try { recentLogs.push(JSON.parse(raw)); } catch { /* skip */ } }
+        const log = getDailyLog(dateStr);
+        if (log) recentLogs.push(log);
       }
       prompt = buildPatternPrompt(state, recentLogs);
     } else {

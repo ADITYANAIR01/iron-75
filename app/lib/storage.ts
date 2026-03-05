@@ -15,6 +15,7 @@ const KEYS = {
   START_DATE: 'iron75_start_date',
   LONGEST_STREAK: 'iron75_longest_streak',
   TOTAL_RESTARTS: 'iron75_total_restarts',
+  APP_STATE_UPDATED_AT: 'iron75_app_state_updated_at',
   DAILY_LOG: (date: string) => `iron75_dailylog_${date}`,
 } as const;
 
@@ -53,6 +54,61 @@ async function getSupabaseUserId(): Promise<string | null> {
   }
 }
 
+// ── Pending-sync queue — retries failed fire-and-forget writes ──────────────
+const PENDING_SYNC_KEY = 'iron75_pending_sync';
+
+interface PendingSyncEntry {
+  type: 'app_state' | 'daily_log';
+  /** For daily_log entries this is the log date; for app_state it's "app_state". */
+  key: string;
+}
+
+function getPendingSyncQueue(): PendingSyncEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(PENDING_SYNC_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function addToPendingSync(entry: PendingSyncEntry): void {
+  if (typeof window === 'undefined') return;
+  const queue = getPendingSyncQueue();
+  // Avoid duplicates
+  if (!queue.some(e => e.type === entry.type && e.key === entry.key)) {
+    queue.push(entry);
+    localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(queue));
+  }
+}
+
+function removeFromPendingSync(entry: PendingSyncEntry): void {
+  if (typeof window === 'undefined') return;
+  const queue = getPendingSyncQueue().filter(e => !(e.type === entry.type && e.key === entry.key));
+  localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(queue));
+}
+
+/** Flush any entries that failed to sync earlier. Called during syncFromSupabase. */
+async function flushPendingSyncQueue(): Promise<void> {
+  const queue = getPendingSyncQueue();
+  if (queue.length === 0) return;
+
+  for (const entry of queue) {
+    try {
+      if (entry.type === 'app_state') {
+        const state = getAppState();
+        const ts = typeof window !== 'undefined' ? localStorage.getItem(KEYS.APP_STATE_UPDATED_AT) ?? undefined : undefined;
+        await syncAppStateToSupabase(state, ts);
+      } else if (entry.type === 'daily_log') {
+        const log = getDailyLog(entry.key);
+        if (log) await syncDailyLogToSupabase(log, log.updatedAt);
+      }
+      removeFromPendingSync(entry);
+    } catch {
+      // Still offline — leave in queue for next attempt
+    }
+  }
+}
+
 // ── App state (streak / day / meta) ──────────────────────────────────────────
 function defaultAppState(): AppState {
   return {
@@ -77,22 +133,27 @@ export function getAppState(): AppState {
 
 export function saveAppState(state: AppState): void {
   if (typeof window === 'undefined') return;
+  const now = new Date().toISOString();
   // 1. Write to localStorage (instant, offline-first)
   localStorage.setItem(KEYS.STREAK, String(state.streak));
   localStorage.setItem(KEYS.DAY, String(state.currentDay));
   localStorage.setItem(KEYS.START_DATE, state.startDate);
   localStorage.setItem(KEYS.LONGEST_STREAK, String(state.longestStreak));
   localStorage.setItem(KEYS.TOTAL_RESTARTS, String(state.totalRestarts));
+  localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, now);
   // 2. Mirror to Supabase (fire-and-forget)
-  syncAppStateToSupabase(state);
+  syncAppStateToSupabase(state, now);
 }
 
-async function syncAppStateToSupabase(state: AppState): Promise<void> {
+async function syncAppStateToSupabase(state: AppState, updatedAt?: string): Promise<void> {
   try {
     const userId = await getSupabaseUserId();
-    if (!userId) return;
+    if (!userId) {
+      addToPendingSync({ type: 'app_state', key: 'app_state' });
+      return;
+    }
     const supabase = createClient();
-    await supabase.from('app_state').upsert(
+    const { error } = await supabase.from('app_state').upsert(
       {
         user_id: userId,
         streak: state.streak,
@@ -100,12 +161,19 @@ async function syncAppStateToSupabase(state: AppState): Promise<void> {
         start_date: state.startDate,
         longest_streak: state.longestStreak,
         total_restarts: state.totalRestarts,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt ?? new Date().toISOString(),
       },
       { onConflict: 'user_id' }
     );
+    if (error) {
+      console.warn('Supabase app_state upsert error:', error.message);
+      addToPendingSync({ type: 'app_state', key: 'app_state' });
+    } else {
+      removeFromPendingSync({ type: 'app_state', key: 'app_state' });
+    }
   } catch (err) {
     console.warn('Supabase app_state sync failed (offline?):', err);
+    addToPendingSync({ type: 'app_state', key: 'app_state' });
   }
 }
 
@@ -144,20 +212,24 @@ export function getDailyLog(date: string): DailyLog | null {
 
 export function saveDailyLog(log: DailyLog): void {
   if (typeof window === 'undefined') return;
+  const now = new Date().toISOString();
   // Always recompute allTasksComplete so any caller (incl. WorkoutScreen) keeps it correct.
-  const committed: DailyLog = { ...log, allTasksComplete: checkAllTasksComplete(log) };
+  const committed: DailyLog = { ...log, allTasksComplete: checkAllTasksComplete(log), updatedAt: now };
   // 1. Write to localStorage (instant, offline-first)
   localStorage.setItem(KEYS.DAILY_LOG(committed.date), JSON.stringify(committed));
   // 2. Mirror to Supabase (fire-and-forget)
-  syncDailyLogToSupabase(committed);
+  syncDailyLogToSupabase(committed, now);
 }
 
-async function syncDailyLogToSupabase(log: DailyLog): Promise<void> {
+async function syncDailyLogToSupabase(log: DailyLog, updatedAt?: string): Promise<void> {
   try {
     const userId = await getSupabaseUserId();
-    if (!userId) return;
+    if (!userId) {
+      addToPendingSync({ type: 'daily_log', key: log.date });
+      return;
+    }
     const supabase = createClient();
-    await supabase.from('daily_logs').upsert(
+    const { error } = await supabase.from('daily_logs').upsert(
       {
         user_id: userId,
         date: log.date,
@@ -176,12 +248,19 @@ async function syncDailyLogToSupabase(log: DailyLog): Promise<void> {
         all_tasks_complete: log.allTasksComplete,
         celebration_shown: log.celebrationShown,
         ai_insight_shown: log.aiInsightShown,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt ?? new Date().toISOString(),
       },
       { onConflict: 'user_id,date' }
     );
+    if (error) {
+      console.warn('Supabase daily_log upsert error:', error.message);
+      addToPendingSync({ type: 'daily_log', key: log.date });
+    } else {
+      removeFromPendingSync({ type: 'daily_log', key: log.date });
+    }
   } catch (err) {
     console.warn('Supabase daily_log sync failed (offline?):', err);
+    addToPendingSync({ type: 'daily_log', key: log.date });
   }
 }
 
@@ -220,48 +299,120 @@ export async function syncFromSupabase(): Promise<void> {
     if (!userId) return;
     const supabase = createClient();
 
-    // Sync app_state
+    // Flush any writes that failed on previous sessions first
+    await flushPendingSyncQueue();
+
+    // Sync app_state — compare timestamps, keep the newer version
     const { data: stateRow } = await supabase
       .from('app_state')
       .select('*')
       .eq('user_id', userId)
       .single();
 
+    const localAppStateUpdatedAt = typeof window !== 'undefined'
+      ? localStorage.getItem(KEYS.APP_STATE_UPDATED_AT) ?? ''
+      : '';
+
     if (stateRow) {
-      localStorage.setItem(KEYS.STREAK, String(stateRow.streak));
-      localStorage.setItem(KEYS.DAY, String(stateRow.current_day));
-      localStorage.setItem(KEYS.START_DATE, stateRow.start_date);
-      localStorage.setItem(KEYS.LONGEST_STREAK, String(stateRow.longest_streak));
-      localStorage.setItem(KEYS.TOTAL_RESTARTS, String(stateRow.total_restarts));
+      const cloudTs = stateRow.updated_at ?? '';
+      const localIsNewer = localAppStateUpdatedAt && cloudTs && localAppStateUpdatedAt > cloudTs;
+
+      if (localIsNewer) {
+        // Local is newer → push local state UP to cloud
+        const localState = getAppState();
+        syncAppStateToSupabase(localState, localAppStateUpdatedAt);
+      } else {
+        // Cloud is newer (or no local timestamp) → pull cloud DOWN
+        localStorage.setItem(KEYS.STREAK, String(stateRow.streak));
+        localStorage.setItem(KEYS.DAY, String(stateRow.current_day));
+        localStorage.setItem(KEYS.START_DATE, stateRow.start_date);
+        localStorage.setItem(KEYS.LONGEST_STREAK, String(stateRow.longest_streak));
+        localStorage.setItem(KEYS.TOTAL_RESTARTS, String(stateRow.total_restarts));
+        localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, cloudTs || new Date().toISOString());
+      }
+    } else if (localAppStateUpdatedAt) {
+      // No cloud state but we have local data → push it up
+      const localState = getAppState();
+      syncAppStateToSupabase(localState, localAppStateUpdatedAt);
     }
 
-    // Sync daily_logs
-    const { data: logs } = await supabase
+    // Sync daily_logs — compare per-date timestamps, keep newer version per day
+    const { data: cloudLogs } = await supabase
       .from('daily_logs')
       .select('*')
       .eq('user_id', userId);
 
-    if (logs) {
-      for (const row of logs) {
-        const log: DailyLog = {
-          date: row.date,
-          gymWorkoutDone: row.gym_workout_done,
-          outdoorWalkDone: row.outdoor_walk_done,
-          waterLiters: row.water_liters,
-          waterGoalMet: row.water_goal_met,
-          readingDone: row.reading_done,
-          readingBook: row.reading_book ?? '',
-          dietSlots: row.diet_slots ?? { breakfast: '', lunch: '', dinner: '', snacks: '' },
-          moodEmoji: (row.mood_emoji ?? '') as MoodEmoji,
-          energyLevel: row.energy_level ?? 3,
-          motivationLevel: row.motivation_level ?? 3,
-          sorenessLevel: row.soreness_level ?? 3,
-          progressPhotoUrl: row.progress_photo_url ?? '',
-          allTasksComplete: row.all_tasks_complete,
-          celebrationShown: row.celebration_shown,
-          aiInsightShown: row.ai_insight_shown ?? '',
-        };
-        localStorage.setItem(KEYS.DAILY_LOG(log.date), JSON.stringify(log));
+    // Build a map of cloud logs by date
+    const cloudLogMap = new Map<string, typeof cloudLogs extends (infer T)[] | null ? T : never>();
+    if (cloudLogs) {
+      for (const row of cloudLogs) {
+        cloudLogMap.set(row.date, row);
+      }
+    }
+
+    // Collect all local log dates
+    const localLogDates = new Set<string>();
+    if (typeof window !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('iron75_dailylog_')) {
+          const date = key.replace('iron75_dailylog_', '');
+          localLogDates.add(date);
+        }
+      }
+    }
+
+    // Merge: for each cloud log, compare with local
+    if (cloudLogs) {
+      for (const row of cloudLogs) {
+        const localRaw = typeof window !== 'undefined'
+          ? localStorage.getItem(KEYS.DAILY_LOG(row.date))
+          : null;
+        const localLog: DailyLog | null = localRaw ? JSON.parse(localRaw) : null;
+        const cloudTs = row.updated_at ?? '';
+        const localTs = localLog?.updatedAt ?? '';
+
+        if (localLog && localTs && cloudTs && localTs > cloudTs) {
+          // Local is newer → push this log UP to cloud
+          syncDailyLogToSupabase(localLog, localTs);
+        } else {
+          // Cloud is newer (or no local version) → pull cloud DOWN
+          const log: DailyLog = {
+            date: row.date,
+            gymWorkoutDone: row.gym_workout_done,
+            outdoorWalkDone: row.outdoor_walk_done,
+            waterLiters: row.water_liters,
+            waterGoalMet: row.water_goal_met,
+            readingDone: row.reading_done,
+            readingBook: row.reading_book ?? '',
+            dietSlots: row.diet_slots ?? { breakfast: '', lunch: '', dinner: '', snacks: '' },
+            moodEmoji: (row.mood_emoji ?? '') as MoodEmoji,
+            energyLevel: row.energy_level ?? 3,
+            motivationLevel: row.motivation_level ?? 3,
+            sorenessLevel: row.soreness_level ?? 3,
+            progressPhotoUrl: row.progress_photo_url ?? '',
+            allTasksComplete: row.all_tasks_complete,
+            celebrationShown: row.celebration_shown,
+            aiInsightShown: row.ai_insight_shown ?? '',
+            updatedAt: cloudTs || new Date().toISOString(),
+          };
+          localStorage.setItem(KEYS.DAILY_LOG(log.date), JSON.stringify(log));
+        }
+        // Mark this date as handled
+        localLogDates.delete(row.date);
+      }
+    }
+
+    // Push any local-only logs (not in cloud) up to Supabase
+    for (const date of localLogDates) {
+      const raw = typeof window !== 'undefined'
+        ? localStorage.getItem(KEYS.DAILY_LOG(date))
+        : null;
+      if (raw) {
+        try {
+          const localLog = JSON.parse(raw) as DailyLog;
+          syncDailyLogToSupabase(localLog, localLog.updatedAt);
+        } catch { /* skip corrupt entries */ }
       }
     }
 
@@ -504,6 +655,8 @@ const PROTECTED_KEYS = new Set(['iron75_user_name', 'iron75_fresh_start_used']);
 export async function resetForFreshStart(startDate: string): Promise<void> {
   // 1. Remove all iron75_ keys except protected ones
   if (typeof window !== 'undefined') {
+    // Clear pending sync queue first — prevents stale data from being re-pushed
+    localStorage.removeItem(PENDING_SYNC_KEY);
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -515,6 +668,7 @@ export async function resetForFreshStart(startDate: string): Promise<void> {
   }
 
   // 2. Seed localStorage with the clean fresh-start state
+  const now = new Date().toISOString();
   const fresh: AppState = {
     streak: 0,
     currentDay: 1,
@@ -528,6 +682,7 @@ export async function resetForFreshStart(startDate: string): Promise<void> {
     localStorage.setItem(KEYS.START_DATE, startDate);
     localStorage.setItem(KEYS.LONGEST_STREAK, '0');
     localStorage.setItem(KEYS.TOTAL_RESTARTS, '0');
+    localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, now);
     // Mark as used immediately — before any async work that could exit early
     localStorage.setItem('iron75_fresh_start_used', 'true');
   }
@@ -554,7 +709,7 @@ export async function resetForFreshStart(startDate: string): Promise<void> {
         start_date: fresh.startDate,
         longest_streak: fresh.longestStreak,
         total_restarts: fresh.totalRestarts,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       },
       { onConflict: 'user_id' }
     );
@@ -567,6 +722,8 @@ export async function resetForFreshStart(startDate: string): Promise<void> {
 export async function deleteAllData(): Promise<void> {
   // 1. Clear all Iron75 keys from localStorage (preserve protected keys)
   if (typeof window !== 'undefined') {
+    // Clear pending sync queue first — prevents stale data from being re-pushed
+    localStorage.removeItem(PENDING_SYNC_KEY);
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);

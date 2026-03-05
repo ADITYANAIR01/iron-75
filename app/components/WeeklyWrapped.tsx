@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DailyLog } from '../lib/types';
+import { getDailyLog } from '../lib/storage';
 
 interface WeeklyWrappedProps {
   visible: boolean;
@@ -28,10 +29,8 @@ function loadWeekLogs(startDate: string): DailyLog[] {
     const mo = String(d.getMonth() + 1).padStart(2, '0');
     const da = String(d.getDate()).padStart(2, '0');
     const date = `${y}-${mo}-${da}`;
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(`iron75_dailylog_${date}`) : null;
-    if (raw) {
-      try { logs.push(JSON.parse(raw)); } catch { /* skip */ }
-    }
+    const log = getDailyLog(date);
+    if (log) logs.push(log);
   }
   return logs;
 }

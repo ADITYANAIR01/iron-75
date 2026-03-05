@@ -26,6 +26,7 @@ export interface DailyLog {
   allTasksComplete: boolean;
   celebrationShown: boolean;
   aiInsightShown: string;
+  updatedAt?: string; // ISO timestamp for sync conflict resolution
 }
 
 export interface AppState {
