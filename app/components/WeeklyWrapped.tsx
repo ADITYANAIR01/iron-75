@@ -102,6 +102,13 @@ function buildStats(logs: DailyLog[]) {
   const dominantMood = Object.entries(moodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'meh';
   const moodEmojis: Record<string, string> = { great: '😄', good: '🙂', meh: '😐', bad: '😞', terrible: '😩' };
 
+  // Collect week photos (new multi-photo field, falls back to legacy single)
+  const weekPhotos: { day: number; url: string }[] = [];
+  logs.forEach((l, i) => {
+    const urls = l.progressPhotos?.length ? l.progressPhotos : (l.progressPhotoUrl ? [l.progressPhotoUrl] : []);
+    urls.forEach((url) => weekPhotos.push({ day: i + 1, url }));
+  });
+
   return {
     totalWater: totalWater.toFixed(1),
     waterCups,
@@ -118,6 +125,7 @@ function buildStats(logs: DailyLog[]) {
     dominantMood,
     dominantMoodEmoji: moodEmojis[dominantMood] ?? '😐',
     score: completeDays,
+    weekPhotos,
   };
 }
 
@@ -262,6 +270,52 @@ const SLIDES: Slide[] = [
             <motion.p className="text-xs text-yellow-400 mt-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.9 }}>
               ⚠️ Energy was low — prioritize sleep & nutrition next week
             </motion.p>
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    id: 'photos',
+    bg: 'linear-gradient(135deg, #0a0a1a 0%, #0D0D1A 60%, #0a001a 100%)',
+    content: (stats) => {
+      if (stats.weekPhotos.length === 0) {
+        return (
+          <div className="flex flex-col items-center text-center gap-4 h-full justify-center px-6">
+            <motion.div className="text-6xl" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: 0.1 }}>📷</motion.div>
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+              <div className="text-xs uppercase tracking-widest text-gray-400 mb-2">Weekly Memories</div>
+              <div className="text-2xl font-black text-white mb-2">No photos this week</div>
+              <p className="text-sm text-gray-400">Upload progress pics from the Today tab to see them here!</p>
+            </motion.div>
+          </div>
+        );
+      }
+      const gridCols = stats.weekPhotos.length === 1 ? 'grid-cols-1' : 'grid-cols-2';
+      return (
+        <div className="flex flex-col items-center gap-4 h-full justify-center px-4">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <div className="text-xs uppercase tracking-widest text-center mb-1" style={{ color: '#00F5D4' }}>📸 Weekly Memories</div>
+            <div className="text-lg font-black text-white text-center mb-3">{stats.weekPhotos.length} Photo{stats.weekPhotos.length > 1 ? 's' : ''} This Week</div>
+          </motion.div>
+          <motion.div
+            className={`grid ${gridCols} gap-2 w-full max-h-[45vh] overflow-hidden`}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
+          >
+            {stats.weekPhotos.slice(0, 4).map((p, i) => (
+              <div key={i} className="relative rounded-xl overflow-hidden aspect-[3/4]"
+                style={{ border: '1px solid rgba(0,245,212,0.3)' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.url} alt={`Day ${p.day}`} className="w-full h-full object-cover" />
+                <div className="absolute bottom-0 inset-x-0 py-1 text-center text-[10px] font-bold"
+                  style={{ background: 'rgba(0,0,0,0.6)', color: '#00F5D4' }}>
+                  Day {p.day}
+                </div>
+              </div>
+            ))}
+          </motion.div>
+          {stats.weekPhotos.length > 4 && (
+            <p className="text-xs text-gray-500">+{stats.weekPhotos.length - 4} more in Progress tab</p>
           )}
         </div>
       );

@@ -22,7 +22,8 @@ export interface DailyLog {
   energyLevel: number; // 1–5
   motivationLevel: number; // 1–5
   sorenessLevel: number; // 1–5
-  progressPhotoUrl: string; // base64 for now, Supabase Storage later
+  progressPhotoUrl: string; // legacy single-photo field (kept for backward compat)
+  progressPhotos: string[]; // up to 4 cloud URLs
   allTasksComplete: boolean;
   celebrationShown: boolean;
   aiInsightShown: string;

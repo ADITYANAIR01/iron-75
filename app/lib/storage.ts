@@ -212,6 +212,7 @@ function createDefaultDailyLog(date: string): DailyLog {
     motivationLevel: 3,
     sorenessLevel: 3,
     progressPhotoUrl: '',
+    progressPhotos: [],
     allTasksComplete: false,
     celebrationShown: false,
     aiInsightShown: '',
@@ -264,6 +265,7 @@ async function syncDailyLogToSupabase(log: DailyLog, updatedAt?: string): Promis
         motivation_level: log.motivationLevel,
         soreness_level: log.sorenessLevel,
         progress_photo_url: log.progressPhotoUrl,
+        progress_photos: log.progressPhotos ?? [],
         all_tasks_complete: log.allTasksComplete,
         celebration_shown: log.celebrationShown,
         ai_insight_shown: log.aiInsightShown,
@@ -553,6 +555,7 @@ export async function syncFromSupabase(): Promise<void> {
             motivationLevel: row.motivation_level ?? 3,
             sorenessLevel: row.soreness_level ?? 3,
             progressPhotoUrl: row.progress_photo_url ?? '',
+            progressPhotos: Array.isArray(row.progress_photos) ? row.progress_photos : [],
             allTasksComplete: row.all_tasks_complete,
             celebrationShown: row.celebration_shown,
             aiInsightShown: row.ai_insight_shown ?? '',
@@ -672,14 +675,15 @@ export async function syncFromSupabase(): Promise<void> {
 }
 
 // ─── Photo rename helper — date + metadata ──────────────────────────────────
-export function renamePhotoWithMetadata(
+function renamePhotoWithMetadata(
   file: File,
   date: string,
-  dayNumber: number
+  dayNumber: number,
+  slotIndex: number = 0
 ): File {
   const ext = file.name.split('.').pop() ?? 'jpg';
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const newName = `iron75_day${dayNumber}_${date}_${timestamp}.${ext}`;
+  const newName = `iron75_day${dayNumber}_${date}_slot${slotIndex}_${timestamp}.${ext}`;
   return new File([file], newName, { type: file.type, lastModified: Date.now() });
 }
 
@@ -718,7 +722,8 @@ export function compressImage(
 export async function uploadProgressPhoto(
   file: File,
   date: string,
-  dayNumber: number = 1
+  dayNumber: number = 1,
+  slotIndex: number = 0
 ): Promise<string | null> {
   const userId = await getSupabaseUserId();
   if (!userId) return null;
@@ -731,7 +736,8 @@ export async function uploadProgressPhoto(
     const renamedFile = renamePhotoWithMetadata(
       new File([uploadBlob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg', lastModified: Date.now() }),
       date,
-      dayNumber
+      dayNumber,
+      slotIndex
     );
     const path = `${userId}/${renamedFile.name}`;
     const { error } = await supabase.storage
@@ -743,15 +749,27 @@ export async function uploadProgressPhoto(
     }
     const { data: signedData } = await supabase.storage
       .from('progress-photos')
-      .createSignedUrl(path, 31536000); // 1-year expiry — private even if bucket is public
+      .createSignedUrl(path, 31536000); // 1-year expiry
     if (signedData?.signedUrl) return signedData.signedUrl;
-    // Fallback: public URL (only works if bucket allows public access)
     const { data } = supabase.storage.from('progress-photos').getPublicUrl(path);
     return data?.publicUrl ?? null;
   } catch (err) {
     console.error('Photo upload exception:', err);
     return null;
   }
+}
+
+/** Upload multiple photos (up to 4) and return array of cloud URLs. */
+export async function uploadMultiplePhotos(
+  files: File[],
+  date: string,
+  dayNumber: number = 1
+): Promise<string[]> {
+  const limited = files.slice(0, 4);
+  const results = await Promise.all(
+    limited.map((file, i) => uploadProgressPhoto(file, date, dayNumber, i))
+  );
+  return results.filter((url): url is string => url !== null);
 }
 
 // ─── Save profile name to Supabase ─────────────────────────────────────────

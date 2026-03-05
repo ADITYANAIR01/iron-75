@@ -6,6 +6,7 @@ import {
   saveDailyLog,
   getOrCreateTodayLog,
   checkAllTasksComplete,
+  uploadMultiplePhotos,
   uploadProgressPhoto,
   compressImage,
 } from '../lib/storage';
@@ -289,19 +290,25 @@ export default function TodayScreen() {
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
 
+  /** Helper: current photos list (normalised from new + legacy fields) */
+  const currentPhotos = (log?.progressPhotos?.length ? log.progressPhotos : (log?.progressPhotoUrl ? [log.progressPhotoUrl] : []));
+  const MAX_PHOTOS = 4;
+
+  /** Upload a single photo (camera capture) */
   const handlePhotoSelected = async (file: File) => {
+    if (currentPhotos.length >= MAX_PHOTOS) return;
     const session = ++photoSessionRef.current;
     setPhotoUploading(true);
     setShowPhotoOptions(false);
     try {
-      const cloudUrl = await uploadProgressPhoto(file, log?.date ?? '', appState.currentDay);
-      // Discard result if user removed/replaced photo while upload was in flight.
+      const cloudUrl = await uploadProgressPhoto(file, log?.date ?? '', appState.currentDay, currentPhotos.length);
       if (session !== photoSessionRef.current) return;
       if (cloudUrl) {
-        updateLog((p) => ({ ...p, progressPhotoUrl: cloudUrl }));
+        updateLog((p) => {
+          const photos = [...(p.progressPhotos ?? []), cloudUrl].slice(0, MAX_PHOTOS);
+          return { ...p, progressPhotos: photos, progressPhotoUrl: photos[0] ?? '' };
+        });
       } else {
-        // Fallback: compress the image first to avoid low-memory errors when
-        // storing a large base64 data URL in localStorage.
         let sourceBlob: Blob = file;
         try { sourceBlob = await compressImage(file); } catch { /* use original */ }
         await new Promise<void>((resolve) => {
@@ -309,7 +316,10 @@ export default function TodayScreen() {
           reader.onload = (ev) => {
             if (session !== photoSessionRef.current) { resolve(); return; }
             const base64 = ev.target?.result as string;
-            updateLog((p) => ({ ...p, progressPhotoUrl: base64 }));
+            updateLog((p) => {
+              const photos = [...(p.progressPhotos ?? []), base64].slice(0, MAX_PHOTOS);
+              return { ...p, progressPhotos: photos, progressPhotoUrl: photos[0] ?? '' };
+            });
             resolve();
           };
           reader.onerror = () => resolve();
@@ -321,16 +331,67 @@ export default function TodayScreen() {
     }
   };
 
+  /** Upload multiple photos from gallery (up to 4 total) */
+  const handleGalleryFiles = async (files: File[]) => {
+    const remaining = MAX_PHOTOS - currentPhotos.length;
+    if (remaining <= 0) return;
+    const batch = files.slice(0, remaining);
+    const session = ++photoSessionRef.current;
+    setPhotoUploading(true);
+    setShowPhotoOptions(false);
+    try {
+      const urls = await uploadMultiplePhotos(batch, log?.date ?? '', appState.currentDay);
+      if (session !== photoSessionRef.current) return;
+      if (urls.length > 0) {
+        updateLog((p) => {
+          const photos = [...(p.progressPhotos ?? []), ...urls].slice(0, MAX_PHOTOS);
+          return { ...p, progressPhotos: photos, progressPhotoUrl: photos[0] ?? '' };
+        });
+      } else {
+        // Fallback to base64 for each file
+        for (const file of batch) {
+          let sourceBlob: Blob = file;
+          try { sourceBlob = await compressImage(file); } catch { /* use original */ }
+          await new Promise<void>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              if (session !== photoSessionRef.current) { resolve(); return; }
+              const base64 = ev.target?.result as string;
+              updateLog((p) => {
+                const photos = [...(p.progressPhotos ?? []), base64].slice(0, MAX_PHOTOS);
+                return { ...p, progressPhotos: photos, progressPhotoUrl: photos[0] ?? '' };
+              });
+              resolve();
+            };
+            reader.onerror = () => resolve();
+            reader.readAsDataURL(sourceBlob);
+          });
+        }
+      }
+    } finally {
+      if (session === photoSessionRef.current) setPhotoUploading(false);
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    photoSessionRef.current++;
+    updateLog((p) => {
+      const photos = [...(p.progressPhotos ?? [])];
+      photos.splice(index, 1);
+      return { ...p, progressPhotos: photos, progressPhotoUrl: photos[0] ?? '' };
+    });
+  };
+
   const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handlePhotoSelected(file);
-    e.target.value = ''; // allow re-selecting same file
+    e.target.value = '';
   };
 
   const handleGalleryPick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handlePhotoSelected(file);
-    e.target.value = ''; // allow re-selecting same file
+    const files = e.target.files;
+    if (files && files.length > 0) handleGalleryFiles(Array.from(files));
+    e.target.value = '';
   };
 
   const toggleCard = (id: string) => {
@@ -682,12 +743,12 @@ export default function TodayScreen() {
             style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
             📷
           </div>
-          <span className="flex-1 font-bold text-sm" style={{ color: '#64748B' }}>Progress Photo</span>
+          <span className="flex-1 font-bold text-sm" style={{ color: '#64748B' }}>Progress Photos</span>
           <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
             style={{ background: 'rgba(255,255,255,0.05)', color: '#64748b', border: '1px solid rgba(255,255,255,0.08)' }}>
-            optional
+            {currentPhotos.length}/{MAX_PHOTOS}
           </span>
-          {log.progressPhotoUrl && <span className="text-sm">✅</span>}
+          {currentPhotos.length > 0 && <span className="text-sm">✅</span>}
           <motion.span style={{ color: '#64748b', fontSize: '11px' }}
             animate={{ rotate: expandedCard === 'photo' ? 180 : 0 }}>▼</motion.span>
         </button>
@@ -702,29 +763,35 @@ export default function TodayScreen() {
               className="overflow-hidden"
             >
               <div className="px-4 pb-4 flex flex-col gap-3">
-                {log.progressPhotoUrl ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="relative rounded-2xl overflow-hidden" style={{ border: '2px solid #00F5D4' }}>
-                      <img src={log.progressPhotoUrl} alt="Today&apos;s progress" className="w-32 h-40 object-cover" />
-                      <div className="absolute bottom-0 inset-x-0 py-1 text-center text-[10px] font-bold"
-                        style={{ background: 'rgba(0,0,0,0.6)', color: '#00F5D4' }}>
-                        Day {appState.currentDay}
+                {/* Photo grid — show existing photos */}
+                {currentPhotos.length > 0 && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {currentPhotos.map((url, idx) => (
+                      <div key={idx} className="relative rounded-xl overflow-hidden aspect-[3/4]"
+                        style={{ border: '2px solid #00F5D4' }}>
+                        <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                        <div className="absolute bottom-0 inset-x-0 py-1 text-center text-[10px] font-bold"
+                          style={{ background: 'rgba(0,0,0,0.6)', color: '#00F5D4' }}>
+                          Day {appState.currentDay} · #{idx + 1}
+                        </div>
+                        <button
+                          onClick={() => removePhoto(idx)}
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs"
+                          style={{ background: 'rgba(0,0,0,0.7)', color: '#ff4757' }}>
+                          ✕
+                        </button>
                       </div>
-                    </div>
-                    <motion.button whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        // Invalidate any in-flight upload and clear photo cache key
-                        photoSessionRef.current++;
-                        updateLog((p) => ({ ...p, progressPhotoUrl: '' }));
-                      }}
-                      className="text-xs text-red-400 underline">
-                      Remove photo
-                    </motion.button>
+                    ))}
                   </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-3 py-3">
+                )}
+
+                {/* Add more / first photo buttons */}
+                {currentPhotos.length < MAX_PHOTOS && (
+                  <div className="flex flex-col items-center gap-3 py-2">
                     <p className="text-xs text-center" style={{ color: '#64748B' }}>
-                      Snap your daily transformation pic — stored to Supabase cloud
+                      {currentPhotos.length === 0
+                        ? 'Upload up to 4 daily progress pics — synced to cloud'
+                        : `${MAX_PHOTOS - currentPhotos.length} more slot${MAX_PHOTOS - currentPhotos.length > 1 ? 's' : ''} available`}
                     </p>
                     {photoUploading ? (
                       <div className="flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm"
@@ -741,7 +808,7 @@ export default function TodayScreen() {
                           border: '1.5px dashed rgba(255,255,255,0.1)',
                           color: '#64748b',
                         }}>
-                        📷 Add Photo
+                        📷 {currentPhotos.length === 0 ? 'Add Photos' : 'Add More'}
                       </motion.button>
                     ) : (
                       <motion.div
@@ -749,7 +816,6 @@ export default function TodayScreen() {
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                       >
-                        {/* Take Photo (Camera) */}
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={() => cameraInputRef.current?.click()}
@@ -762,7 +828,6 @@ export default function TodayScreen() {
                           📸 Take Photo
                         </motion.button>
 
-                        {/* Upload from Gallery */}
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={() => galleryInputRef.current?.click()}
@@ -772,10 +837,9 @@ export default function TodayScreen() {
                             border: '1px solid rgba(0,245,212,0.2)',
                             color: '#00F5D4',
                           }}>
-                          🖼️ Choose from Gallery
+                          🖼️ Choose from Gallery (up to {MAX_PHOTOS - currentPhotos.length})
                         </motion.button>
 
-                        {/* Cancel */}
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={() => setShowPhotoOptions(false)}
@@ -783,10 +847,9 @@ export default function TodayScreen() {
                           Cancel
                         </motion.button>
 
-                        {/* Hidden inputs */}
                         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment"
                           onChange={handleCameraCapture} className="hidden" />
-                        <input ref={galleryInputRef} type="file" accept="image/*"
+                        <input ref={galleryInputRef} type="file" accept="image/*" multiple
                           onChange={handleGalleryPick} className="hidden" />
                       </motion.div>
                     )}

@@ -513,9 +513,9 @@ export default function ProgressScreen() {
             exit={{ opacity: 0, y: -16 }}
             className="flex flex-col gap-4"
           >
-            {/* Photo grid */}
             {(() => {
-              const photos: { date: string; url: string; day: number }[] = [];
+              type PhotoEntry = { date: string; urls: string[]; day: number };
+              const allDays: PhotoEntry[] = [];
               const appSt = getAppState();
               const startDate = appSt.startDate;
               const currentDay = appSt.currentDay;
@@ -526,21 +526,21 @@ export default function ProgressScreen() {
                 const mo = String(d.getMonth() + 1).padStart(2, '0');
                 const da = String(d.getDate()).padStart(2, '0');
                 const date = `${y}-${mo}-${da}`;
-                // Prefer the daily log URL (cleared on removal) over the cache key.
-                const url = (() => {
-                  const log = getDailyLog(date);
-                  return log?.progressPhotoUrl || null;
-                })();
-                if (url) photos.push({ date, url, day: i + 1 });
+                const log = getDailyLog(date);
+                const urls = log?.progressPhotos?.length
+                  ? log.progressPhotos
+                  : log?.progressPhotoUrl ? [log.progressPhotoUrl] : [];
+                if (urls.length > 0) allDays.push({ date, urls, day: i + 1 });
               }
+              const totalPhotos = allDays.reduce((s, d) => s + d.urls.length, 0);
 
-              if (photos.length === 0) {
+              if (allDays.length === 0) {
                 return (
                   <div className="rounded-2xl p-8 text-center" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div className="text-5xl mb-3">📸</div>
                     <p className="text-sm font-bold text-white mb-1">No photos yet</p>
                     <p className="text-xs" style={{ color: '#64748b' }}>
-                      Upload your daily progress photo from the Today tab — it uploads to Supabase cloud storage.
+                      Upload up to 4 daily progress photos from the Today tab.
                     </p>
                   </div>
                 );
@@ -549,29 +549,70 @@ export default function ProgressScreen() {
               return (
                 <>
                   <div className="rounded-2xl p-4" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <p className="text-sm font-bold text-white mb-1">{photos.length} Progress Photos</p>
-                    <p className="text-xs text-gray-500">Your transformation in pictures</p>
+                    <p className="text-sm font-bold text-white mb-1">{totalPhotos} Progress Photos</p>
+                    <p className="text-xs text-gray-500">Across {allDays.length} days — your transformation in pictures</p>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {photos.map((p) => (
-                      <motion.div
-                        key={p.date}
-                        className="relative rounded-xl overflow-hidden aspect-[3/4]"
-                        style={{ border: '1px solid rgba(255,255,255,0.06)' }}
-                        whileHover={{ scale: 1.03 }}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={p.url} alt={`Day ${p.day}`} className="w-full h-full object-cover" />
-                        <div
-                          className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center text-xs font-bold"
-                          style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}
-                        >
-                          Day {p.day}
+
+                  {/* Before / After comparison */}
+                  {allDays.length >= 2 && (
+                    <div className="rounded-2xl p-4" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(0,245,212,0.15)' }}>
+                      <p className="text-xs uppercase tracking-widest font-bold mb-3" style={{ color: '#00F5D4' }}>Before &amp; After</p>
+                      <div className="flex gap-3">
+                        {/* First day photo */}
+                        <div className="flex-1 relative rounded-xl overflow-hidden aspect-[3/4]"
+                          style={{ border: '1px solid rgba(255,107,53,0.4)' }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={allDays[0].urls[0]} alt="Before" className="w-full h-full object-cover" />
+                          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                            style={{ background: 'rgba(0,0,0,0.7)', color: '#FF6B35' }}>
+                            Day {allDays[0].day}
+                          </div>
+                          <div className="absolute bottom-0 inset-x-0 py-1 text-center text-xs font-bold"
+                            style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}>
+                            Before
+                          </div>
                         </div>
-                      </motion.div>
-                    ))}
+                        {/* Latest day photo */}
+                        <div className="flex-1 relative rounded-xl overflow-hidden aspect-[3/4]"
+                          style={{ border: '1px solid rgba(0,245,212,0.4)' }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={allDays[allDays.length - 1].urls[0]} alt="After" className="w-full h-full object-cover" />
+                          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                            style={{ background: 'rgba(0,0,0,0.7)', color: '#00F5D4' }}>
+                            Day {allDays[allDays.length - 1].day}
+                          </div>
+                          <div className="absolute bottom-0 inset-x-0 py-1 text-center text-xs font-bold"
+                            style={{ background: 'rgba(0,0,0,0.6)', color: '#00F5D4' }}>
+                            After
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* All photos grid */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {allDays.flatMap((entry) =>
+                      entry.urls.map((url, idx) => (
+                        <motion.div
+                          key={`${entry.date}-${idx}`}
+                          className="relative rounded-xl overflow-hidden aspect-[3/4]"
+                          style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+                          whileHover={{ scale: 1.03 }}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={url} alt={`Day ${entry.day} #${idx + 1}`} className="w-full h-full object-cover" />
+                          <div
+                            className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center text-xs font-bold"
+                            style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}
+                          >
+                            Day {entry.day}{entry.urls.length > 1 ? ` · #${idx + 1}` : ''}
+                          </div>
+                        </motion.div>
+                      ))
+                    )}
                   </div>
                 </>
               );
