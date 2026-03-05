@@ -7,6 +7,7 @@ import {
   getOrCreateTodayLog,
   checkAllTasksComplete,
   uploadProgressPhoto,
+  compressImage,
 } from '../lib/storage';
 import { initializeStreakOnLoad, completeTodayStreak, getDaysToGoal, isPastTenPM } from '../lib/streakLogic';
 import { DailyLog, AppState, MoodEmoji } from '../lib/types';
@@ -300,6 +301,10 @@ export default function TodayScreen() {
         updateLog((p) => ({ ...p, progressPhotoUrl: cloudUrl }));
         if (log?.date) localStorage.setItem(`iron75_photo_${log.date}`, cloudUrl);
       } else {
+        // Fallback: compress the image first to avoid low-memory errors when
+        // storing a large base64 data URL in localStorage.
+        let sourceBlob: Blob = file;
+        try { sourceBlob = await compressImage(file); } catch { /* use original */ }
         await new Promise<void>((resolve) => {
           const reader = new FileReader();
           reader.onload = (ev) => {
@@ -310,7 +315,7 @@ export default function TodayScreen() {
             resolve();
           };
           reader.onerror = () => resolve();
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(sourceBlob);
         });
       }
     } finally {

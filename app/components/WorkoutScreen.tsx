@@ -292,6 +292,25 @@ export default function WorkoutScreen() {
     [today, session.key]
   );
 
+  // Auto-complete session when every set of every exercise is done
+  useEffect(() => {
+    if (sessionComplete || !mounted || session.exercises.length === 0) return;
+    const allDone = session.exercises.every(
+      (ex) =>
+        (exerciseStates[ex.name]?.sets ?? []).length > 0 &&
+        (exerciseStates[ex.name]?.sets ?? []).every((s) => s.done)
+    );
+    if (allDone) {
+      const completedKey = `iron75_workout_complete_${today}_${session.key}`;
+      if (localStorage.getItem(completedKey) !== '1') {
+        const log = getOrCreateTodayLog();
+        saveDailyLog({ ...log, gymWorkoutDone: true });
+        localStorage.setItem(completedKey, '1');
+        setSessionComplete(true);
+      }
+    }
+  }, [exerciseStates, session.exercises, session.key, sessionComplete, today, mounted]);
+
   const totalSets = session.exercises.reduce((s, ex) => s + ex.sets, 0);
   const doneSets = Object.values(exerciseStates).reduce(
     (s, ex) => s + ex.sets.filter((st) => st.done).length,

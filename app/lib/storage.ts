@@ -292,6 +292,37 @@ export function renamePhotoWithMetadata(
   return new File([file], newName, { type: file.type, lastModified: Date.now() });
 }
 
+// ─── Image compression helper — reduces memory usage before upload/storage ───
+export function compressImage(
+  file: File,
+  maxWidthPx = 1080,
+  quality = 0.78
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const scale = Math.min(1, maxWidthPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { resolve(file); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => { resolve(blob ?? file); },
+        'image/jpeg',
+        quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')); };
+    img.src = objectUrl;
+  });
+}
+
 // ─── Supabase Storage — progress photo upload ────────────────────────────────
 export async function uploadProgressPhoto(
   file: File,
@@ -302,11 +333,19 @@ export async function uploadProgressPhoto(
   if (!userId) return null;
   try {
     const supabase = createClient();
-    const renamedFile = renamePhotoWithMetadata(file, date, dayNumber);
+    // Compress before upload to avoid low-memory errors on large camera files
+    let uploadBlob: Blob = file;
+    try { uploadBlob = await compressImage(file); } catch { /* fall back to original */ }
+    // Always use .jpg extension since we compress to JPEG
+    const renamedFile = renamePhotoWithMetadata(
+      new File([uploadBlob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg', lastModified: Date.now() }),
+      date,
+      dayNumber
+    );
     const path = `${userId}/${renamedFile.name}`;
     const { error } = await supabase.storage
       .from('progress-photos')
-      .upload(path, renamedFile, { upsert: true, contentType: renamedFile.type });
+      .upload(path, renamedFile, { upsert: true, contentType: 'image/jpeg' });
     if (error) {
       console.error('Photo upload error:', error.message);
       return null;
