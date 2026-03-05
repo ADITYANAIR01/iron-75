@@ -20,10 +20,24 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     setState(getAppState());
+    // Auto-populate name from Google account if available and no local name saved
     const savedName = localStorage.getItem('iron75_user_name') ?? '';
-    setName(savedName);
+    if (!savedName && user) {
+      const googleName: string =
+        user.user_metadata?.full_name ??
+        user.user_metadata?.name ??
+        '';
+      if (googleName) {
+        setName(googleName);
+        saveProfileName(googleName);
+      } else {
+        setName('');
+      }
+    } else {
+      setName(savedName);
+    }
     setFreshStartUsed(localStorage.getItem('iron75_fresh_start_used') === 'true');
-  }, []);
+  }, [user]);
 
   const handleNameSave = () => {
     saveProfileName(name);

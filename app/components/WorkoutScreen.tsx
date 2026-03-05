@@ -286,10 +286,28 @@ export default function WorkoutScreen() {
       setExerciseStates((prev) => {
         const updated = { ...prev, [exName]: next };
         saveWorkoutState(today, session.key, updated);
+
+        // Auto-complete session when every set of every exercise is done
+        const allDone =
+          session.exercises.length > 0 &&
+          session.exercises.every((ex) =>
+            (updated[ex.name]?.sets ?? []).length > 0 &&
+            (updated[ex.name]?.sets ?? []).every((s) => s.done)
+          );
+        if (allDone) {
+          const completedKey = `iron75_workout_complete_${today}_${session.key}`;
+          if (localStorage.getItem(completedKey) !== '1') {
+            const log = getOrCreateTodayLog();
+            saveDailyLog({ ...log, gymWorkoutDone: true });
+            localStorage.setItem(completedKey, '1');
+            setSessionComplete(true);
+          }
+        }
+
         return updated;
       });
     },
-    [today, session.key]
+    [today, session.key, session.exercises]
   );
 
   const totalSets = session.exercises.reduce((s, ex) => s + ex.sets, 0);
