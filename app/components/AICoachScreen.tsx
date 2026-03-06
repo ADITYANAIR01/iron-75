@@ -6,7 +6,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppState, DailyLog } from '../lib/types';
 import { askGemini } from '../lib/gemini';
 
-// ─── Build a rich prompt from today's log data ────────────────────────────────
 function buildCoachPrompt(state: AppState, log: DailyLog | null): string {
   const moodMap: Record<string, string> = { great: 'great', good: 'good', meh: 'okay', bad: 'bad', terrible: 'terrible', '': 'unknown' };
   const tasks = [
@@ -26,7 +25,6 @@ Give a short, POWERFUL, personalized coaching insight (3-4 sentences). Be direct
 Use Duolingo-style energy — fun but tough. Add ONE practical tip. End with a fire emoji or motivational symbol. No fluff.`;
 }
 
-// ─── Pattern analysis prompt ──────────────────────────────────────────────────
 function buildPatternPrompt(state: AppState, recentLogs: DailyLog[]): string {
   const moodMap: Record<string, number> = { great: 5, good: 4, meh: 3, bad: 2, terrible: 1 };
   const avgMood = recentLogs.length
@@ -47,7 +45,6 @@ Identify ONE key pattern (positive or negative) and give a specific, actionable 
 Be brutally honest but encouraging. Use bold language. Max 4 sentences. Add relevant emoji.`;
 }
 
-// ─── Mood emoji map ────────────────────────────────────────────────────────────
 const MOOD_EMOJI_MAP: Record<string, string> = {
   great: '😄', good: '🙂', meh: '😐', bad: '😞', terrible: '😩',
 };
@@ -56,7 +53,6 @@ function getMoodEmoji(moodEmoji: string): string {
   return MOOD_EMOJI_MAP[moodEmoji] ?? '—';
 }
 
-// ─── Quick challenge cards ────────────────────────────────────────────────────
 const CHALLENGES = [
   { id: 'tip', icon: '🔥', label: 'Today\'s Power Tip', prompt: (s: AppState, l: DailyLog | null) => buildCoachPrompt(s, l) },
   { id: 'pattern', icon: '📈', label: 'Pattern Analysis', prompt: null },

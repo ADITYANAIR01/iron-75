@@ -1,4 +1,3 @@
-// ─── Iron75 Streak & Day Logic ───────────────────────────────────────────────
 
 import {
   getAppState,

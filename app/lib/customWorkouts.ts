@@ -1,4 +1,3 @@
-// ─── Custom Workout Planner – Data Layer ────────────────────────────────────
 //
 // Lets users create their own workout sessions and assign them to days of the
 // week. Unassigned days fall back to the default PPL rotation.

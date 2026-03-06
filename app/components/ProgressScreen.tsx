@@ -19,7 +19,6 @@ import {
 import { DailyLog } from '../lib/types';
 import { getDailyLog, getAppState } from '../lib/storage';
 
-// ─── Internal types ────────────────────────────────────────────────────────────
 interface DayStatus {
   day: number;
   date: string;
@@ -38,7 +37,6 @@ type ChartRow = {
   tasks: number;
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T12:00:00');
   d.setDate(d.getDate() + days);
@@ -114,7 +112,6 @@ function buildChartData(days: DayStatus[]): ChartRow[] {
     }));
 }
 
-// ─── Color helpers ─────────────────────────────────────────────────────────────
 const COMPLETE_COLOR = '#00F5D4';
 const FAILED_COLOR = '#FF6B35';
 const FUTURE_COLOR = '#141432';
@@ -139,7 +136,6 @@ function taskBarColor(tasks: number): string {
   return '#FF4757';
 }
 
-// ─── GitHub Heatmap Grid ───────────────────────────────────────────────────────
 function HeatmapGrid({ days }: { days: DayStatus[] }) {
   return (
     <div>
@@ -185,7 +181,6 @@ function HeatmapGrid({ days }: { days: DayStatus[] }) {
   );
 }
 
-// ─── Ring / Circular View ──────────────────────────────────────────────────────
 function RingView({ days }: { days: DayStatus[] }) {
   const SIZE = 32;
   const R = 11;
@@ -256,7 +251,6 @@ function RingView({ days }: { days: DayStatus[] }) {
   );
 }
 
-// ─── Chart helpers ─────────────────────────────────────────────────────────────
 const GRID_COLOR = '#1a1a40';
 const AXIS_COLOR = '#64748b';
 
@@ -310,7 +304,6 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-// ─── Main Component ────────────────────────────────────────────────────────────
 export default function ProgressScreen() {
   const [activeTab, setActiveTab] = useState<'overview' | 'photos' | 'charts'>('overview');
   const [heatmapView, setHeatmapView] = useState<'grid' | 'rings'>('grid');

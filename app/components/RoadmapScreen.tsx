@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getAppState } from '../lib/storage';
 
-// ─── Milestone definitions ────────────────────────────────────────────────────
 const MILESTONES = [
   {
     day: 7,
@@ -56,7 +55,6 @@ const MILESTONES = [
   },
 ];
 
-// ─── Phase definitions ─────────────────────────────────────────────────────────
 const PHASES = [
   {
     range: [1, 7],
@@ -95,7 +93,6 @@ const PHASES = [
   },
 ];
 
-// ─── Motivational quotes per phase ────────────────────────────────────────────
 const PHASE_QUOTES: Record<string, string> = {
   Foundation: '"The secret to getting ahead is getting started." — Mark Twain',
   Momentum: '"Success is the sum of small efforts, repeated day in and day out." — Robert Collier',
@@ -104,7 +101,6 @@ const PHASE_QUOTES: Record<string, string> = {
   Legacy: '"It\'s not about the destination. It\'s about who you become along the way." — Iron75',
 };
 
-// ─── Week timeline data ────────────────────────────────────────────────────────
 function buildWeeks(currentDay: number) {
   const weeks = [];
   for (let w = 0; w < 11; w++) {

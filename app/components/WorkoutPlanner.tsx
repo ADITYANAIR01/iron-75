@@ -27,7 +27,6 @@ import { SESSIONS, DOW_TO_SESSION } from '../lib/pplData';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
-// ─── Quick Exercise Inline Row ────────────────────────────────────────────────
 function QuickExerciseRow({
   exercise, index, color, onChange, onRemove,
 }: {
@@ -79,7 +78,6 @@ function QuickExerciseRow({
   );
 }
 
-// ─── Inline Session Editor (compact panel) ───────────────────────────────────
 function InlineSessionEditor({
   session, onSave, onCancel, assignments, onAssignmentsChange,
 }: {
@@ -233,7 +231,6 @@ function InlineSessionEditor({
   );
 }
 
-// ─── Main WorkoutPlanner ──────────────────────────────────────────────────────
 function InlineDefaultTemplateEditor({
   sessionKey,
   exercises,

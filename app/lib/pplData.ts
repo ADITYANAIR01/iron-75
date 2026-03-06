@@ -1,4 +1,3 @@
-// ─── PPL Exercise Database ───────────────────────────────────────────────────
 
 export interface ExerciseSpec {
   name: string;

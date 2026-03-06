@@ -1,4 +1,3 @@
-// ─── Iron75 Storage Utilities (localStorage + Supabase sync) ────────────────
 //
 // Strategy: localStorage is the primary write target for instant offline UX.
 // When a Supabase user is authenticated, writes are mirrored to the cloud DB
@@ -448,7 +447,6 @@ async function syncWorkoutToSupabase(
   }
 }
 
-// ─── Supabase → localStorage sync (call once after login) ──────────────────
 export async function syncFromSupabase(): Promise<void> {
   try {
     const userId = await getSupabaseUserId();
@@ -674,7 +672,6 @@ export async function syncFromSupabase(): Promise<void> {
   }
 }
 
-// ─── Photo rename helper — date + metadata ──────────────────────────────────
 function renamePhotoWithMetadata(
   file: File,
   date: string,
@@ -687,7 +684,6 @@ function renamePhotoWithMetadata(
   return new File([file], newName, { type: file.type, lastModified: Date.now() });
 }
 
-// ─── Image compression helper — reduces memory usage before upload/storage ───
 export function compressImage(
   file: File,
   maxWidthPx = 1080,
@@ -718,7 +714,6 @@ export function compressImage(
   });
 }
 
-// ─── Supabase Storage — progress photo upload ────────────────────────────────
 export async function uploadProgressPhoto(
   file: File,
   date: string,
@@ -772,7 +767,6 @@ export async function uploadMultiplePhotos(
   return results.filter((url): url is string => url !== null);
 }
 
-// ─── Save profile name to Supabase ─────────────────────────────────────────
 export async function saveProfileName(name: string): Promise<void> {
   localStorage.setItem('iron75_user_name', name);
   const userId = await getSupabaseUserId();
@@ -784,7 +778,6 @@ export async function saveProfileName(name: string): Promise<void> {
   );
 }
 
-// ─── Export all data ────────────────────────────────────────────────────────
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -900,7 +893,6 @@ export function generateExportHTML(): string {
 </html>`;
 }
 
-// ─── Reset everything and schedule a fresh start on a given date ─────────────
 
 /** Keys that must never be wiped, no matter what reset is triggered. */
 const PROTECTED_KEYS = new Set(['iron75_user_name', 'iron75_fresh_start_used']);
@@ -978,7 +970,6 @@ export async function resetForFreshStart(startDate: string): Promise<void> {
   }
 }
 
-// ─── Delete all data (localStorage + Supabase) ──────────────────────────────
 export async function deleteAllData(): Promise<void> {
   // 1. Clear all Iron75 keys from localStorage (preserve protected keys)
   if (typeof window !== 'undefined') {

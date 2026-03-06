@@ -1,4 +1,3 @@
-// ─── Gemini AI Proxy Route (server-side only – key never exposed to client) ───
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';

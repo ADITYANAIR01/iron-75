@@ -4,7 +4,6 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef, Re
 import { createClient } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 
-// ─── Auth Context ───────────────────────────────────────────────────────────
 interface AuthContextType {
   user: User | null;
   session: Session | null;

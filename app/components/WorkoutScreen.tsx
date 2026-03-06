@@ -8,7 +8,6 @@ import { getSessionForDow, getAllSessionSpecs, getSessionById } from '../lib/cus
 import WorkoutPlanner from './WorkoutPlanner';
 import type { SetState, ExerciseState } from '../lib/types';
 
-// ─── Storage helpers ──────────────────────────────────────────────────────────
 function buildInitialExerciseState(ex: ExerciseSpec): ExerciseState {
   return {
     sets: Array.from({ length: ex.sets }, () => ({ done: false, reps: '' })),
@@ -49,7 +48,6 @@ function loadWorkoutState(date: string, session: SessionSpec): Record<string, Ex
   return next;
 }
 
-// ─── Exercise Card ────────────────────────────────────────────────────────────
 function ExerciseCard({
   exercise,
   state,
@@ -186,7 +184,6 @@ function ExerciseCard({
   );
 }
 
-// ─── Session selector pills ───────────────────────────────────────────────────
 function SessionPills({ current, onSelect, allSpecs }: { current: string; onSelect: (key: string) => void; allSpecs: SessionSpec[] }) {
   return (
     <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
@@ -214,7 +211,6 @@ function SessionPills({ current, onSelect, allSpecs }: { current: string; onSele
   );
 }
 
-// ─── Warmup / Cooldown section ────────────────────────────────────────────────
 function WarmCoolSection({ title, items, color }: { title: string; items: string[]; color: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -245,7 +241,6 @@ function WarmCoolSection({ title, items, color }: { title: string; items: string
   );
 }
 
-// ─── Main WorkoutScreen ───────────────────────────────────────────────────────
 export default function WorkoutScreen() {
   const today = getToday();
   const todayDow = getDayOfWeek(today);

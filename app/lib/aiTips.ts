@@ -1,6 +1,4 @@
-// ─── Shared AI tips (placeholder until Gemini via Supabase Edge Functions) ───
 
-// ─── Categorized Smart Tips Database ─────────────────────────────────────────
 interface SmartTip {
   text: string;
   category: 'motivation' | 'nutrition' | 'recovery' | 'mindset' | 'science' | 'strategy';
@@ -57,7 +55,6 @@ const SMART_TIPS: SmartTip[] = [
   { text: 'Track your PR lifts. Seeing strength gains is the most addictive form of progress.', category: 'strategy', icon: '📊' },
 ];
 
-// ─── Time-of-day contextual tips ────────────────────────────────────────────
 const TIME_TIPS: { hours: [number, number]; tip: string; icon: string }[] = [
   { hours: [5, 8], tip: 'Morning check-in: hydrate first thing. 500ml water kickstarts your metabolism.', icon: '🌅' },
   { hours: [8, 11], tip: 'Pre-workout window: eat 30-60 min before training. Carbs + protein = fuel.', icon: '☀️' },
@@ -68,7 +65,6 @@ const TIME_TIPS: { hours: [number, number]; tip: string; icon: string }[] = [
   { hours: [22, 24], tip: 'Late night? Sleep is your #1 recovery tool. Complete tasks and rest well.', icon: '🌑' },
 ];
 
-// ─── Stat-based conditional tips ────────────────────────────────────────────
 interface StatContext {
   streak?: number;
   waterLiters?: number;
@@ -101,7 +97,6 @@ function getStatBasedTip(context: StatContext): string | null {
   return null;
 }
 
-// ─── Main exported functions ────────────────────────────────────────────────
 export function getDailyTip(day: number, context?: StatContext): string {
   // Priority 1: Stat-based contextual tips
   if (context) {

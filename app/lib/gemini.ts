@@ -1,4 +1,3 @@
-// ─── Gemini client helper (calls our server-side proxy) ─────────────────────
 
 // Rich offline fallback tips per category so AI is NEVER "unavailable"
 const OFFLINE_TIPS: Record<string, string[]> = {

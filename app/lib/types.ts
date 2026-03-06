@@ -1,4 +1,3 @@
-// ─── Iron75 Core Type Definitions ───────────────────────────────────────────
 
 export interface DietSlots {
   breakfast: string;
@@ -38,7 +37,6 @@ export interface AppState {
   totalRestarts: number;
 }
 
-// ─── Workout set/exercise tracking ─────────────────────────────────────────
 export interface SetState {
   done: boolean;
   reps: string;

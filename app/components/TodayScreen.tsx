@@ -16,7 +16,6 @@ import WaterBottle from './WaterBottle';
 import CelebrationOverlay from './CelebrationOverlay';
 import { getDailyTip, getMotivationalQuote, getTipCategory } from '../lib/aiTips';
 
-// ─── Mood config ───────────────────────────────────────────────────────────────
 const MOODS: { value: MoodEmoji; emoji: string; label: string; color: string }[] = [
   { value: 'great', emoji: '😄', label: 'Great', color: '#00F5D4' },
   { value: 'good', emoji: '🙂', label: 'Good', color: '#BAFF39' },
@@ -25,7 +24,6 @@ const MOODS: { value: MoodEmoji; emoji: string; label: string; color: string }[]
   { value: 'terrible', emoji: '😩', label: 'Terrible', color: '#FF4757' },
 ];
 
-// ─── Animated progress ring ───────────────────────────────────────────────────
 function ProgressRing({ progress, size = 64 }: { progress: number; size?: number }) {
   const r = (size - 6) / 2;
   const circ = 2 * Math.PI * r;
@@ -59,7 +57,6 @@ function ProgressRing({ progress, size = 64 }: { progress: number; size?: number
   );
 }
 
-// ─── Task Card with neon accent ─────────────────────────────────────────────
 interface TaskCardProps {
   icon: string;
   label: string;
@@ -169,7 +166,6 @@ function TaskCard({ icon, label, done, accentColor, onToggle, expandable, expand
   );
 }
 
-// ─── Slider with visual track ──────────────────────────────────────────────────
 function LabeledSlider({
   label, emoji, value, onChange, color,
 }: {
@@ -203,7 +199,6 @@ function LabeledSlider({
   );
 }
 
-// ─── Main TodayScreen ──────────────────────────────────────────────────────────
 export default function TodayScreen() {
   const [log, setLog] = useState<DailyLog | null>(null);
   const [appState, setAppState] = useState<AppState>({

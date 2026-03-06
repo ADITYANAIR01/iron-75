@@ -12,7 +12,6 @@ interface WeeklyWrappedProps {
   startDate: string;    // YYYY-MM-DD of week start
 }
 
-// ─── Helper — load 7 logs ────────────────────────────────────────────────────
 function loadWeekLogs(startDate: string): DailyLog[] {
   // Guard: if startDate is empty or unparseable, bail rather than throwing
   // RangeError on Invalid Date.toISOString() (happens when desktop button is
@@ -35,7 +34,6 @@ function loadWeekLogs(startDate: string): DailyLog[] {
   return logs;
 }
 
-// ─── Personality titles based on score ───────────────────────────────────────
 function getWeekTitle(score: number): { title: string; emoji: string; desc: string } {
   if (score === 7) return {
     title: 'The Iron Legend',
@@ -69,7 +67,6 @@ function getWeekTitle(score: number): { title: string; emoji: string; desc: stri
   };
 }
 
-// ─── Fun stat generator ────────────────────────────────────────────────────────
 function buildStats(logs: DailyLog[]) {
   const totalWater = logs.reduce((s, l) => s + l.waterLiters, 0);
   const gymDays = logs.filter((l) => l.gymWorkoutDone).length;
@@ -129,7 +126,6 @@ function buildStats(logs: DailyLog[]) {
   };
 }
 
-// ─── Slide types ──────────────────────────────────────────────────────────────
 type Slide = {
   id: string;
   bg: string;
@@ -371,7 +367,6 @@ const SLIDES: Slide[] = [
   },
 ];
 
-// ─── Main Component ───────────────────────────────────────────────────────────
 export default function WeeklyWrapped({ visible, onDismiss, weekNumber, startDate }: WeeklyWrappedProps) {
   const [slideIndex, setSlideIndex] = useState(0);
   const [stats, setStats] = useState<ReturnType<typeof buildStats> | null>(null);

@@ -1,4 +1,3 @@
-// ─── Supabase Client (Browser) ──────────────────────────────────────────────
 import { createBrowserClient } from '@supabase/ssr';
 
 export function createClient() {

@@ -7,7 +7,6 @@ import { TabId } from './lib/types';
 import { AuthProvider, useAuth } from './components/AuthProvider';
 import { syncFromSupabase, getAppState, isWrappedShown, markWrappedShown as markWrappedShownStorage } from './lib/storage';
 
-// ─── Lazy-load screens ────────────────────────────────────────────────────────
 const LoginScreen = dynamic(() => import('./components/LoginScreen'), { ssr: false });
 const TodayScreen = dynamic(() => import('./components/TodayScreen'), {
   ssr: false,
@@ -24,7 +23,6 @@ const RoadmapScreen = dynamic(() => import('./components/RoadmapScreen'), { ssr:
 const SettingsScreen = dynamic(() => import('./components/SettingsScreen'), { ssr: false });
 const WeeklyWrapped = dynamic(() => import('./components/WeeklyWrapped'), { ssr: false });
 
-// ─── Tabs config ──────────────────────────────────────────────────────────────
 const TABS: { id: TabId; icon: string; label: string }[] = [
   { id: 'today',   icon: '🏠', label: 'Today'   },
   { id: 'workout', icon: '💪', label: 'Workout'  },
@@ -33,7 +31,6 @@ const TABS: { id: TabId; icon: string; label: string }[] = [
   { id: 'roadmap', icon: '🗺️', label: 'Roadmap'  },
 ];
 
-// ─── Root ─────────────────────────────────────────────────────────────────────
 export default function App() {
   return (
     <AuthProvider>
@@ -57,7 +54,6 @@ function AuthGate() {
   return <AppShell />;
 }
 
-// ─── Weekly Wrapped trigger logic ─────────────────────────────────────────────
 function shouldShowWrapped(currentDay: number): boolean {
   if (typeof window === 'undefined') return false;
   if (currentDay < 7) return false;
@@ -80,7 +76,6 @@ function getWeekStartDate(currentDay: number, startDate: string): string {
   return d.toISOString().split('T')[0];
 }
 
-// ─── App Shell ─────────────────────────────────────────────────────────────────
 function AppShell() {
   const [activeTab, setActiveTab] = useState<TabId>('today');
   const [showWrapped, setShowWrapped] = useState(false);
