@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS public.app_state (
   total_restarts INTEGER DEFAULT 0,
   custom_sessions JSONB DEFAULT '[]',
   day_assignments JSONB DEFAULT '{}',
+  default_session_overrides JSONB DEFAULT '{}',
   wrapped_shown_weeks JSONB DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -408,6 +409,7 @@ If you already created the `app_state` table before these columns were added, ru
 -- Add JSONB columns for custom workout definitions, day assignments, and wrapped tracking
 ALTER TABLE public.app_state ADD COLUMN IF NOT EXISTS custom_sessions JSONB DEFAULT '[]';
 ALTER TABLE public.app_state ADD COLUMN IF NOT EXISTS day_assignments JSONB DEFAULT '{}';
+ALTER TABLE public.app_state ADD COLUMN IF NOT EXISTS default_session_overrides JSONB DEFAULT '{}';
 ALTER TABLE public.app_state ADD COLUMN IF NOT EXISTS wrapped_shown_weeks JSONB DEFAULT '[]';
 
 -- Add multi-photo support to daily_logs
@@ -498,6 +500,7 @@ CREATE TABLE public.app_state (
   total_restarts INTEGER DEFAULT 0,
   custom_sessions JSONB DEFAULT '[]',
   day_assignments JSONB DEFAULT '{}',
+  default_session_overrides JSONB DEFAULT '{}',
   wrapped_shown_weeks JSONB DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),

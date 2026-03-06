@@ -9,6 +9,7 @@ import { createClient } from './supabase';
 // ── Storage keys ──────────────────────────────────────────────────────────────
 const CUSTOM_SESSIONS_KEY = 'iron75_custom_sessions';
 const DAY_ASSIGNMENTS_KEY = 'iron75_day_assignments';
+const DEFAULT_SESSION_OVERRIDES_KEY = 'iron75_default_session_overrides';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface CustomExercise {
@@ -32,9 +33,35 @@ export interface CustomSession {
   cooldown: string[];
 }
 
+export type DefaultSessionKey =
+  | 'pushA'
+  | 'pullA'
+  | 'legsA'
+  | 'pushB'
+  | 'pullB'
+  | 'legsB'
+  | 'mobility';
+
+export const DEFAULT_SESSION_KEYS: DefaultSessionKey[] = [
+  'pushA',
+  'pullA',
+  'legsA',
+  'pushB',
+  'pullB',
+  'legsB',
+  'mobility',
+];
+
+const DEFAULT_SESSION_KEY_SET = new Set<string>(DEFAULT_SESSION_KEYS);
+export type DefaultSessionOverrides = Partial<Record<DefaultSessionKey, CustomExercise[]>>;
+
 // Maps day-of-week (0=Sun..6=Sat) → session id (custom id or PPL key).
 // Missing entries = use PPL default for that day.
 export type DayAssignments = Partial<Record<number, string>>;
+
+function isDefaultSessionKey(key: string): key is DefaultSessionKey {
+  return DEFAULT_SESSION_KEY_SET.has(key);
+}
 
 // ── ID generator ──────────────────────────────────────────────────────────────
 export function generateId(): string {
@@ -64,6 +91,45 @@ export const EXERCISE_EMOJIS: Record<string, string> = {
 };
 
 // ── CRUD: Custom Sessions ─────────────────────────────────────────────────────
+function cleanExercise(ex: CustomExercise): CustomExercise {
+  return {
+    ...ex,
+    name: ex.name.trim(),
+    emoji: ex.emoji || EXERCISE_EMOJIS[ex.targetMuscle] || EXERCISE_EMOJIS['Full Body'],
+    sets: Math.max(1, ex.sets || 1),
+    repRange: ex.repRange.trim() || '8-12',
+    rest: ex.rest.trim() || '90s',
+    targetMuscle: ex.targetMuscle || 'Full Body',
+    tip: ex.tip.trim() || 'Focus on form and progressive overload.',
+  };
+}
+
+function customExerciseToSpec(ex: CustomExercise): ExerciseSpec {
+  const cleaned = cleanExercise(ex);
+  return {
+    name: cleaned.name,
+    emoji: cleaned.emoji,
+    sets: cleaned.sets,
+    repRange: cleaned.repRange,
+    rest: cleaned.rest,
+    tip: cleaned.tip,
+    targetMuscle: cleaned.targetMuscle,
+  };
+}
+
+function exerciseSpecToCustom(ex: ExerciseSpec): CustomExercise {
+  return {
+    id: generateId(),
+    name: ex.name,
+    emoji: ex.emoji,
+    sets: ex.sets,
+    repRange: ex.repRange,
+    rest: ex.rest,
+    targetMuscle: ex.targetMuscle,
+    tip: ex.tip,
+  };
+}
+
 export function getCustomSessions(): CustomSession[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -97,6 +163,55 @@ export function saveDayAssignments(assignments: DayAssignments): void {
   syncCustomWorkoutsToSupabase();
 }
 
+export function getDefaultSessionOverrides(): DefaultSessionOverrides {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(DEFAULT_SESSION_OVERRIDES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getDefaultSessionExercises(sessionKey: DefaultSessionKey): CustomExercise[] {
+  const overrides = getDefaultSessionOverrides();
+  const custom = overrides[sessionKey];
+  if (custom && custom.length > 0) {
+    return custom.map((ex) => ({ ...cleanExercise(ex), id: ex.id || generateId() }));
+  }
+  return SESSIONS[sessionKey].exercises.map(exerciseSpecToCustom);
+}
+
+export function saveDefaultSessionExercises(sessionKey: DefaultSessionKey, exercises: CustomExercise[]): void {
+  if (typeof window === 'undefined') return;
+
+  const cleaned = exercises
+    .map((ex) => ({ ...cleanExercise(ex), id: ex.id || generateId() }))
+    .filter((ex) => ex.name.length > 0);
+
+  const baseSpecs = SESSIONS[sessionKey].exercises;
+  const cleanedSpecs = cleaned.map(customExerciseToSpec);
+  const isSameAsBase = JSON.stringify(cleanedSpecs) === JSON.stringify(baseSpecs);
+
+  const overrides = getDefaultSessionOverrides();
+  if (cleaned.length === 0 || isSameAsBase) {
+    delete overrides[sessionKey];
+  } else {
+    overrides[sessionKey] = cleaned;
+  }
+
+  localStorage.setItem(DEFAULT_SESSION_OVERRIDES_KEY, JSON.stringify(overrides));
+  syncCustomWorkoutsToSupabase();
+}
+
+export function resetDefaultSessionExercises(sessionKey: DefaultSessionKey): void {
+  if (typeof window === 'undefined') return;
+  const overrides = getDefaultSessionOverrides();
+  delete overrides[sessionKey];
+  localStorage.setItem(DEFAULT_SESSION_OVERRIDES_KEY, JSON.stringify(overrides));
+  syncCustomWorkoutsToSupabase();
+}
+
 // ── Supabase sync for custom workouts ─────────────────────────────────────────
 async function syncCustomWorkoutsToSupabase(): Promise<void> {
   try {
@@ -105,15 +220,30 @@ async function syncCustomWorkoutsToSupabase(): Promise<void> {
     if (!user) return;
     const sessions = getCustomSessions();
     const assignments = getDayAssignments();
-    await supabase.from('app_state').upsert(
+    const defaultOverrides = getDefaultSessionOverrides();
+    const now = new Date().toISOString();
+    const { error } = await supabase.from('app_state').upsert(
       {
         user_id: user.id,
         custom_sessions: sessions,
         day_assignments: assignments,
-        updated_at: new Date().toISOString(),
+        default_session_overrides: defaultOverrides,
+        updated_at: now,
       },
       { onConflict: 'user_id' }
     );
+    // Backward compatibility: older DB schema may not have default_session_overrides yet.
+    if (error) {
+      await supabase.from('app_state').upsert(
+        {
+          user_id: user.id,
+          custom_sessions: sessions,
+          day_assignments: assignments,
+          updated_at: now,
+        },
+        { onConflict: 'user_id' }
+      );
+    }
   } catch {
     // Offline — will sync on next syncFromSupabase() call
   }
@@ -125,11 +255,23 @@ export async function syncCustomWorkoutsFromSupabase(): Promise<void> {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data: row } = await supabase
+    let supportsDefaultOverrides = true;
+    let { data: row, error } = await supabase
       .from('app_state')
-      .select('custom_sessions, day_assignments')
+      .select('custom_sessions, day_assignments, default_session_overrides')
       .eq('user_id', user.id)
       .single();
+    if (error) {
+      supportsDefaultOverrides = false;
+      const fallback = await supabase
+        .from('app_state')
+        .select('custom_sessions, day_assignments')
+        .eq('user_id', user.id)
+        .single();
+      row = fallback.data as typeof row;
+      error = fallback.error;
+    }
+    if (error) return;
     if (!row) return;
     // Only pull if cloud has data and local is empty or cloud has more content
     if (row.custom_sessions) {
@@ -151,6 +293,17 @@ export async function syncCustomWorkoutsFromSupabase(): Promise<void> {
       const cloudKeys = Object.keys(cloudAssignments);
       if (localKeys.length === 0 && cloudKeys.length > 0) {
         localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(cloudAssignments));
+      } else if (localKeys.length > 0 && cloudKeys.length === 0) {
+        syncCustomWorkoutsToSupabase();
+      }
+    }
+    if (supportsDefaultOverrides && row.default_session_overrides) {
+      const cloudOverrides = row.default_session_overrides as DefaultSessionOverrides;
+      const localOverrides = getDefaultSessionOverrides();
+      const localKeys = Object.keys(localOverrides);
+      const cloudKeys = Object.keys(cloudOverrides);
+      if (localKeys.length === 0 && cloudKeys.length > 0) {
+        localStorage.setItem(DEFAULT_SESSION_OVERRIDES_KEY, JSON.stringify(cloudOverrides));
       } else if (localKeys.length > 0 && cloudKeys.length === 0) {
         syncCustomWorkoutsToSupabase();
       }
@@ -186,6 +339,22 @@ function customToSessionSpec(cs: CustomSession): SessionSpec {
   };
 }
 
+function getResolvedDefaultSession(sessionKey: DefaultSessionKey): SessionSpec {
+  const base = SESSIONS[sessionKey];
+  const overrides = getDefaultSessionOverrides();
+  const customExercises = overrides[sessionKey];
+  if (!customExercises || customExercises.length === 0) return base;
+
+  const exercises = customExercises
+    .map(customExerciseToSpec)
+    .filter((ex) => ex.name.trim().length > 0);
+
+  return {
+    ...base,
+    exercises: exercises.length > 0 ? exercises : base.exercises,
+  };
+}
+
 /**
  * Get the session for a day-of-week, respecting custom assignments.
  * Falls back to PPL default if no custom assignment.
@@ -196,15 +365,15 @@ export function getSessionForDow(dow: number): SessionSpec {
 
   if (assignedId) {
     // Check if it's a PPL session key
-    if (SESSIONS[assignedId]) return SESSIONS[assignedId];
+    if (isDefaultSessionKey(assignedId)) return getResolvedDefaultSession(assignedId);
     // Check custom sessions
     const custom = getCustomSessions().find((s) => s.id === assignedId);
     if (custom) return customToSessionSpec(custom);
   }
 
   // Fallback to default PPL mapping
-  const pplKey = DOW_TO_SESSION[dow] ?? 'pushA';
-  return SESSIONS[pplKey];
+  const pplKey = (DOW_TO_SESSION[dow] ?? 'pushA') as DefaultSessionKey;
+  return getResolvedDefaultSession(pplKey);
 }
 
 /**
@@ -212,7 +381,7 @@ export function getSessionForDow(dow: number): SessionSpec {
  * Includes default PPL sessions + any custom sessions.
  */
 export function getAllSessionSpecs(): SessionSpec[] {
-  const pplSessions = Object.values(SESSIONS);
+  const pplSessions = DEFAULT_SESSION_KEYS.map((k) => getResolvedDefaultSession(k));
   const custom = getCustomSessions().map(customToSessionSpec);
   return [...pplSessions, ...custom];
 }
@@ -221,6 +390,7 @@ export function getAllSessionSpecs(): SessionSpec[] {
  * Get a SessionSpec by key/id (works for both PPL and custom).
  */
 export function getSessionById(id: string): SessionSpec | null {
+  if (isDefaultSessionKey(id)) return getResolvedDefaultSession(id);
   if (SESSIONS[id]) return SESSIONS[id];
   const custom = getCustomSessions().find((s) => s.id === id);
   return custom ? customToSessionSpec(custom) : null;

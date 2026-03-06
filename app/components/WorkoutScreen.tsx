@@ -9,18 +9,40 @@ import WorkoutPlanner from './WorkoutPlanner';
 import type { SetState, ExerciseState } from '../lib/types';
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
+function buildInitialExerciseState(ex: ExerciseSpec): ExerciseState {
+  return {
+    sets: Array.from({ length: ex.sets }, () => ({ done: false, reps: '' })),
+    notes: '',
+    expanded: false,
+  };
+}
+
 function loadWorkoutState(date: string, session: SessionSpec): Record<string, ExerciseState> {
   const saved = getWorkoutState(date, session.key);
-  if (saved) return saved;
-  const init: Record<string, ExerciseState> = {};
+  const next: Record<string, ExerciseState> = {};
+
   session.exercises.forEach((ex) => {
-    init[ex.name] = {
-      sets: Array.from({ length: ex.sets }, () => ({ done: false, reps: '' })),
-      notes: '',
-      expanded: false,
+    const prev = saved?.[ex.name];
+    if (!prev) {
+      next[ex.name] = buildInitialExerciseState(ex);
+      return;
+    }
+
+    next[ex.name] = {
+      sets: Array.from({ length: ex.sets }, (_, i) => ({
+        done: prev.sets?.[i]?.done ?? false,
+        reps: prev.sets?.[i]?.reps ?? '',
+      })),
+      notes: prev.notes ?? '',
+      expanded: prev.expanded ?? false,
     };
   });
-  return init;
+
+  if (saved && JSON.stringify(saved) !== JSON.stringify(next)) {
+    saveWorkoutState(date, session.key, next, isWorkoutComplete(date, session.key));
+  }
+
+  return next;
 }
 
 // ─── Exercise Card ────────────────────────────────────────────────────────────
@@ -254,7 +276,7 @@ export default function WorkoutScreen() {
   const session: SessionSpec = (() => {
     const found = getSessionById(selectedSessionKey);
     if (found) return found;
-    return SESSIONS[selectedSessionKey] ?? SESSIONS['pushA'];
+    return getSessionById('pushA') ?? SESSIONS['pushA'];
   })();
 
   useEffect(() => {
