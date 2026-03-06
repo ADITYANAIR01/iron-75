@@ -19,6 +19,10 @@ function buildInitialExerciseState(ex: ExerciseSpec): ExerciseState {
 
 function loadWorkoutState(date: string, session: SessionSpec): Record<string, ExerciseState> {
   const saved = getWorkoutState(date, session.key);
+  if (saved && isWorkoutComplete(date, session.key)) {
+    // Keep completed-session snapshots immutable so template edits don't rewrite past completed logs.
+    return saved;
+  }
   const next: Record<string, ExerciseState> = {};
 
   session.exercises.forEach((ex) => {
@@ -315,8 +319,8 @@ export default function WorkoutScreen() {
   }, [exerciseStates, session.exercises, session.key, sessionComplete, today, mounted]);
 
   const totalSets = session.exercises.reduce((s, ex) => s + ex.sets, 0);
-  const doneSets = Object.values(exerciseStates).reduce(
-    (s, ex) => s + ex.sets.filter((st) => st.done).length,
+  const doneSets = session.exercises.reduce(
+    (s, ex) => s + (exerciseStates[ex.name]?.sets.filter((st) => st.done).length ?? 0),
     0
   );
   const completedExercises = session.exercises.filter(
