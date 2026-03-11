@@ -280,3 +280,31 @@ input:focus, textarea:focus {
   --color-foreground: var(--iron-text);
 }
 
+/* Landing page motion */
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: landing-reveal-up 620ms ease forwards;
+}
+
+.landing-float-card {
+  animation: landing-float 6s ease-in-out infinite;
+}
+
+@keyframes landing-reveal-up {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
