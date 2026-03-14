@@ -4,11 +4,13 @@ IRON75 is your digital companion for the grueling 75-day mental toughness challe
 
 ## ✨ Features
 
-- **Daily Dashboard:** Track your 6 core required tasks daily. Watch your flame and streak counters grow as you conquer each objective.
+- **Daily Dashboard:** Track your core daily tasks with instant local saves. Watch your flame and streak counters grow as you conquer each objective.
 - **PPL Workout Plans:** Built-in Push/Pull/Legs tracking lets you log reps, sets, and notes immediately within the app.
 - **Progress Tracking:** Review your whole journey via dynamic GitHub-styled heatmap grids, rings, and trend charts.
 - **Weekly Wrapped:** Every 7 days, get a comprehensive, automated summary of how well you performed and where you can improve.
 - **AI Coach:** Receive personalized, highly contextual motivation and actionable recovery guidance every time you log in.
+- **Dual Challenge Modes:** Switch between Workout Mode (with streak freezes) and strict 75 Hard Mode (no freezes, missed day resets).
+- **Cloud Streak Recovery:** Reconstruct streaks from synced cloud logs when changing devices or recovering data.
 
 ## 🔒 We Value Your Privacy
 
@@ -22,9 +24,11 @@ We believe a tracking app should not turn your daily routine into a commodity. T
 
 You do not need to be a developer to use IRON75! Because all of the privacy and security features described above are already fully implemented, you can start tracking your challenge directly right now as a normal user.
 
-----
-👉 **[iron-75.vercel.app](iron-75.vercel.app)** 
-----
+---
+
+👉 **[https://iron-75.vercel.app](https://iron-75.vercel.app)**
+
+---
 
 ## 💻 Developer Overview
 
@@ -41,20 +45,34 @@ Welcome to the IRON75 codebase. This is a Next.js Progressive Web App (PWA) with
 ### Core Philosophies
 
 #### 1. Privacy First & Local-First Processing
+
 All core daily logs and streaks immediately save to `localStorage`. The application can function offline. Cloud synchronization runs asynchronously purely for multi-device support and data persistence. Row Level Security (RLS) policies on Supabase guarantee that users can exclusively access their own rows.
 
 The AI Coaching proxy (`/api/gemini/route.ts`) acts as a secure intermediary. The Gemini API key is never exposed to the client bundle.
 
 #### 2. Gamified Tracking
-The challenge requires completing 6 explicit daily tasks before midnight. Missing any unchecks the sequence, triggering a logic flow (`streakLogic.ts`) that resets the user's progress while preserving their historical logs (`daily_logs` table).
+
+The app supports two progression systems:
+
+- **Workout Mode:** missed days consume freeze charges before resetting streaks.
+- **75 Hard Mode:** no freezes; missed days reset immediately.
+
+This logic is handled in `streakLogic.ts`, while historical performance remains preserved in `daily_logs`.
+
+#### 3. Mode-Aware Persistence
+
+App state now includes mode metadata (`mode`, `freeze_count`) and syncs to Supabase so users get consistent behavior across devices.
 
 ### Development Setup
 
 #### 1. Requirements
+
 Ensure you have Node.js 18+ installed. Connect to an active Supabase project.
 
 #### 2. Environment Variables
+
 Create a `.env.local`:
+
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://[YOUR_INSTANCE].supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=[YOUR_KEY]
@@ -62,17 +80,25 @@ GEMINI_API_KEY=[YOUR_AI_KEY] # Optional
 ```
 
 #### 3. Running Locally
+
 ```bash
 npm install
 npm run dev
 ```
+
 Visit `http://localhost:3000`.
 
 ### Supabase Schema Requirements
+
 See `Docs/supabase-setup.md` for full DB implementation rules. The minimal required tables are:
+
 - `profiles`
 - `app_state`
 - `daily_logs`
 - `workout_sessions`
+
+If your database was created before dual-mode support, run:
+
+- `Docs/supabase-migration-mode.sql`
 
 All tables must enforce `auth.uid() = id/user_id` inside their RLS policies.

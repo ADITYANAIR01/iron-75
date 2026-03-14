@@ -202,7 +202,7 @@ function LabeledSlider({
 export default function TodayScreen() {
   const [log, setLog] = useState<DailyLog | null>(null);
   const [appState, setAppState] = useState<AppState>({
-    streak: 0, currentDay: 1, startDate: '', longestStreak: 0, totalRestarts: 0,
+    streak: 0, currentDay: 1, startDate: '', longestStreak: 0, totalRestarts: 0, mode: 'workout', freezeCount: 3,
   });
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -516,6 +516,22 @@ export default function TodayScreen() {
                 Best: {appState.longestStreak}🏆
               </div>
             </div>
+
+            {/* Mode indicator */}
+            {appState.mode === 'workout' ? (
+              <div className="flex items-center gap-1.5 mt-2 text-xs font-semibold"
+                style={{ color: appState.freezeCount > 0 ? '#00F5D4' : '#FF4757' }}>
+                🧊 {appState.freezeCount} freeze{appState.freezeCount !== 1 ? 's' : ''} remaining
+                {appState.freezeCount === 0 && (
+                  <span className="ml-1" style={{ color: '#FF4757' }}>— next miss resets streak</span>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 mt-2 text-xs font-bold"
+                style={{ color: '#A855F7' }}>
+                🔒 75 Hard — ⚠️ no freezes, no mercy
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col items-center gap-2">

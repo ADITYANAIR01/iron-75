@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? '';
 const GEMINI_URL =
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 // ── Simple in-memory rate limiter (per-user, resets every 60 s) ─────────────
 const MAX_REQUESTS = 10;
@@ -13,6 +13,12 @@ const rateMap = new Map<string, { count: number; resetAt: number }>();
 
 function isRateLimited(userId: string): boolean {
   const now = Date.now();
+  // Evict stale entries to prevent unbounded growth
+  if (rateMap.size > 500) {
+    for (const [k, v] of rateMap) {
+      if (now > v.resetAt) rateMap.delete(k);
+    }
+  }
   const entry = rateMap.get(userId);
   if (!entry || now > entry.resetAt) {
     rateMap.set(userId, { count: 1, resetAt: now + WINDOW_MS });
@@ -47,7 +53,7 @@ async function getAuthUser(): Promise<string | null> {
 // ── POST handler ────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   if (!GEMINI_API_KEY) {
-    return NextResponse.json({ text: 'AI coach unavailable — add GEMINI_API_KEY to env.' }, { status: 200 });
+    return NextResponse.json({ text: 'AI coach unavailable — add GEMINI_API_KEY to env.' }, { status: 503 });
   }
 
   // 1. Auth check
@@ -64,17 +70,29 @@ export async function POST(request: NextRequest) {
   try {
     // 3. Input validation
     const body = await request.json();
-    const prompt = typeof body?.prompt === 'string' ? body.prompt.slice(0, 2000) : '';
+    const prompt = typeof body?.prompt === 'string' ? body.prompt.slice(0, 3000) : '';
     if (!prompt) {
       return NextResponse.json({ text: 'Empty prompt.' }, { status: 400 });
     }
 
     const res = await fetch(GEMINI_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': GEMINI_API_KEY,
+      },
       body: JSON.stringify({
+        systemInstruction: {
+          parts: [{
+            text: 'You are an elite, no-nonsense fitness and mindset coach for Iron75 — a rigorous 75-day transformation challenge. Your responses are concise, direct, and intensely motivating. You never use filler phrases like "Great job!" or "Of course!". You give specific, data-driven, actionable advice. You treat the user like a high-performance athlete. Use plain text only — no markdown headers, no bullet points with dashes, just clean formatted paragraphs. You may use numbered lists when listing steps. Keep responses tight and punchy.',
+          }],
+        },
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 400, temperature: 0.85 },
+        generationConfig: {
+          maxOutputTokens: 600,
+          temperature: 0.78,
+          topP: 0.9,
+        },
         safetySettings: [
           { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
           { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -85,15 +103,15 @@ export async function POST(request: NextRequest) {
     if (!res.ok) {
       const err = await res.text();
       console.error('Gemini error:', err);
-      return NextResponse.json({ text: 'AI tip unavailable right now. Keep grinding!' }, { status: 200 });
+      return NextResponse.json({ text: 'AI tip unavailable right now. Keep grinding!' }, { status: 502 });
     }
 
     const data = await res.json();
-    const text: string =
+    const raw: string =
       data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Stay consistent. Every rep counts.';
-    return NextResponse.json({ text });
+    return NextResponse.json({ text: raw.trim() });
   } catch (err) {
     console.error('Gemini route error:', err);
-    return NextResponse.json({ text: 'Network error. Remember: no excuses, only results!' }, { status: 200 });
+    return NextResponse.json({ text: 'Network error. Remember: no excuses, only results!' }, { status: 502 });
   }
 }

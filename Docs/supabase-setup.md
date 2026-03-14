@@ -17,6 +17,9 @@ Complete step-by-step guide to configure Supabase for authentication, database, 
 9. [Database Trigger for Auto-Profile](#9-database-trigger-for-auto-profile)
 10. [Verify Setup](#10-verify-setup)
 11. [Troubleshooting](#11-troubleshooting)
+12. [Migration: Custom Workouts & Wrapped Columns](#12-migration-add-custom-workouts--wrapped-sync-columns)
+13. [Migration: Dual-Mode System Columns](#13-migration-add-dual-mode-system-columns)
+14. [Complete Fresh Setup (Single Copy-Paste)](#14-complete-fresh-setup-single-copy-paste)
 
 ---
 
@@ -46,15 +49,20 @@ Complete step-by-step guide to configure Supabase for authentication, database, 
 ## 3. Configure Environment Variables
 
 1. Copy the example env file:
+
    ```bash
    cp .env.local.example .env.local
    ```
+
 2. Edit `.env.local` and paste your values:
+
    ```env
    NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
    NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    ```
+
 3. Restart your dev server after changes:
+
    ```bash
    npm run dev
    ```
@@ -88,6 +96,8 @@ CREATE TABLE IF NOT EXISTS public.app_state (
   start_date DATE DEFAULT CURRENT_DATE,
   longest_streak INTEGER DEFAULT 0,
   total_restarts INTEGER DEFAULT 0,
+  mode TEXT NOT NULL DEFAULT 'workout' CHECK (mode IN ('workout', '75hard')),
+  freeze_count INTEGER NOT NULL DEFAULT 3 CHECK (freeze_count >= 0 AND freeze_count <= 5),
   custom_sessions JSONB DEFAULT '[]',
   day_assignments JSONB DEFAULT '{}',
   default_session_overrides JSONB DEFAULT '{}',
@@ -341,8 +351,8 @@ BEGIN
   );
 
   -- Also create default app_state
-  INSERT INTO public.app_state (user_id, streak, current_day, start_date)
-  VALUES (NEW.id, 0, 1, CURRENT_DATE);
+  INSERT INTO public.app_state (user_id, streak, current_day, start_date, mode, freeze_count)
+  VALUES (NEW.id, 0, 1, CURRENT_DATE, 'workout', 3);
 
   RETURN NEW;
 END;
@@ -373,9 +383,11 @@ CREATE TRIGGER on_auth_user_created
 ### Test the App
 
 1. Start the dev server:
+
    ```bash
    npm run dev
    ```
+
 2. Open [http://localhost:3000](http://localhost:3000).
 3. You should see the **Login screen**.
 4. Sign up with email/password.
@@ -388,14 +400,17 @@ CREATE TRIGGER on_auth_user_created
 ## 11. Troubleshooting
 
 ### "Invalid API key" error
+
 - Double-check `.env.local` values match the Supabase dashboard exactly.
 - Make sure you restarted the dev server after editing `.env.local`.
 
 ### Auth redirect loops
+
 - Verify **Site URL** and **Redirect URLs** in **Authentication → URL Configuration**.
 - For local dev, use `http://localhost:3000` (not `https`).
 
 ### Google OAuth not working
+
 - Ensure the redirect URI in Google Cloud Console matches: `https://<project-id>.supabase.co/auth/v1/callback`
 - Check that Google provider is enabled in Supabase dashboard.
 
@@ -416,12 +431,45 @@ ALTER TABLE public.app_state ADD COLUMN IF NOT EXISTS wrapped_shown_weeks JSONB 
 ALTER TABLE public.daily_logs ADD COLUMN IF NOT EXISTS progress_photos JSONB DEFAULT '[]';
 ```
 
+---
+
+## 13. Migration: Add Dual-Mode System Columns
+
+If you set up the database before the **Workout Mode / 75 Hard Mode** feature was added, run this migration. It is fully non-destructive — existing rows automatically receive `mode='workout'` and `freeze_count=3`.
+
+```sql
+-- Add mode and freeze_count to app_state
+ALTER TABLE public.app_state
+  ADD COLUMN IF NOT EXISTS mode        TEXT    NOT NULL DEFAULT 'workout'
+                                        CHECK (mode IN ('workout', '75hard')),
+  ADD COLUMN IF NOT EXISTS freeze_count INTEGER NOT NULL DEFAULT 3
+                                        CHECK (freeze_count >= 0 AND freeze_count <= 5);
+
+-- Verify
+SELECT column_name, data_type, column_default
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name   = 'app_state'
+  AND column_name  IN ('mode', 'freeze_count');
+```
+
+**Column semantics:**
+
+| Column | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | `text` | `'workout'` | Active mode: `'workout'` or `'75hard'` |
+| `freeze_count` | `integer` | `3` | Streak freezes remaining (0–5, workout mode only) |
+
+---
+
 ### Data not syncing to Supabase
+
 - Open browser DevTools → Console and look for Supabase errors.
 - Verify RLS policies are created (check **Authentication → Policies** in dashboard).
 - The app uses fire-and-forget sync — data always writes to localStorage first.
 
 ### RLS policy errors (403)
+
 - Make sure all policies use `auth.uid()` correctly.
 - Check that the user is actually authenticated before making DB calls.
 
@@ -429,7 +477,7 @@ ALTER TABLE public.daily_logs ADD COLUMN IF NOT EXISTS progress_photos JSONB DEF
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
 │   Browser    │────▶│  localStorage │     │    Supabase      │
 │   (React)    │     │  (instant)    │     │                  │
@@ -451,6 +499,7 @@ ALTER TABLE public.daily_logs ADD COLUMN IF NOT EXISTS progress_photos JSONB DEF
 ```
 
 **Key design decisions:**
+
 - **Offline-first**: localStorage is always the primary data source for instant UX
 - **Fire-and-forget sync**: After writing to localStorage, Supabase sync happens asynchronously
 - **Cloud → Local on login**: `syncFromSupabase()` pulls all cloud data into localStorage when a user signs in
@@ -458,7 +507,7 @@ ALTER TABLE public.daily_logs ADD COLUMN IF NOT EXISTS progress_photos JSONB DEF
 
 ---
 
-## 13. Complete Fresh Setup (Single Copy-Paste)
+## 14. Complete Fresh Setup (Single Copy-Paste)
 
 If you want to drop everything and recreate from scratch, run these blocks **in order** in the SQL Editor.
 
@@ -498,6 +547,8 @@ CREATE TABLE public.app_state (
   start_date DATE DEFAULT CURRENT_DATE,
   longest_streak INTEGER DEFAULT 0,
   total_restarts INTEGER DEFAULT 0,
+  mode TEXT NOT NULL DEFAULT 'workout' CHECK (mode IN ('workout', '75hard')),
+  freeze_count INTEGER NOT NULL DEFAULT 3 CHECK (freeze_count >= 0 AND freeze_count <= 5),
   custom_sessions JSONB DEFAULT '[]',
   day_assignments JSONB DEFAULT '{}',
   default_session_overrides JSONB DEFAULT '{}',
@@ -582,8 +633,8 @@ BEGIN
     COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', ''),
     COALESCE(NEW.raw_user_meta_data->>'avatar_url', '')
   );
-  INSERT INTO public.app_state (user_id, streak, current_day, start_date)
-  VALUES (NEW.id, 0, 1, CURRENT_DATE);
+  INSERT INTO public.app_state (user_id, streak, current_day, start_date, mode, freeze_count)
+  VALUES (NEW.id, 0, 1, CURRENT_DATE, 'workout', 3);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

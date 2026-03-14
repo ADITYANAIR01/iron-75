@@ -29,12 +29,16 @@ export interface DailyLog {
   updatedAt?: string; // ISO timestamp for sync conflict resolution
 }
 
+export type AppMode = 'workout' | '75hard';
+
 export interface AppState {
   streak: number;
   currentDay: number;
   startDate: string; // YYYY-MM-DD ISO
   longestStreak: number;
   totalRestarts: number;
+  mode: AppMode;
+  freezeCount: number; // only consumed/shown in workout mode
 }
 
 export interface SetState {
@@ -49,3 +53,5 @@ export interface ExerciseState {
 }
 
 export type TabId = 'today' | 'workout' | 'progress' | 'ai' | 'roadmap' | 'settings';
+
+export type ChallengeId = 'tip' | 'pattern' | 'motivation' | 'recovery' | 'nutrition';

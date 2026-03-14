@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
-import { TabId } from '../lib/types';
+import { TabId, AppMode } from '../lib/types';
 import { AuthProvider, useAuth } from '../components/AuthProvider';
-import { syncFromSupabase, getAppState, isWrappedShown, markWrappedShown as markWrappedShownStorage } from '../lib/storage';
+import { syncFromSupabase, getAppState, saveAppState, isWrappedShown, markWrappedShown as markWrappedShownStorage, localDateString } from '../lib/storage';
 
 const LoginScreen = dynamic(() => import('../components/LoginScreen'), { ssr: false });
 const TodayScreen = dynamic(() => import('../components/TodayScreen'), {
@@ -73,7 +73,7 @@ function getWeekStartDate(currentDay: number, startDate: string): string {
   const weekNum = Math.floor(currentDay / 7);
   const d = new Date(startDate + 'T12:00:00');
   d.setDate(d.getDate() + (weekNum - 1) * 7);
-  return d.toISOString().split('T')[0];
+  return localDateString(d);
 }
 
 function AppShell() {
@@ -82,9 +82,12 @@ function AppShell() {
   const [wrappedWeek, setWrappedWeek] = useState(1);
   const [wrappedStartDate, setWrappedStartDate] = useState('');
   const [isDesktop, setIsDesktop] = useState(false);
-  // Blocks UI initialization until cloud sync completes, preventing stale-local
-  // state from overwriting newer cloud data on first load / new device.
   const [syncReady, setSyncReady] = useState(false);
+  const [appMode, setAppMode] = useState<AppMode>('workout');
+  const [modeKey, setModeKey] = useState(0);
+  const [showModeModal, setShowModeModal] = useState(false);
+  const [targetMode, setTargetMode] = useState<AppMode>('workout');
+  const [streakTooLow, setStreakTooLow] = useState(false);
 
   // Detect screen size for responsive layout
   useEffect(() => {
@@ -103,6 +106,7 @@ function AppShell() {
       .finally(() => {
         setSyncReady(true);
         const state = getAppState();
+        setAppMode(state.mode);
         if (shouldShowWrapped(state.currentDay)) {
           const isWeekEnd = state.currentDay % 7 === 0;
           const weekNum = isWeekEnd ? Math.floor(state.currentDay / 7) : Math.ceil(state.currentDay / 7);
@@ -117,6 +121,34 @@ function AppShell() {
   const handleDismissWrapped = () => {
     markWrappedShown(wrappedWeek);
     setShowWrapped(false);
+  };
+
+  const handleModeToggleClick = () => {
+    const currentState = getAppState();
+    if (appMode === 'workout') {
+      if (currentState.streak < 10) {
+        setStreakTooLow(true);
+        return;
+      }
+      setTargetMode('75hard');
+    } else {
+      setTargetMode('workout');
+    }
+    setShowModeModal(true);
+  };
+
+  const handleModeConfirm = () => {
+    const currentState = getAppState();
+    const updated = {
+      ...currentState,
+      mode: targetMode,
+      // Restore at least 3 freezes when returning to workout mode
+      freezeCount: targetMode === 'workout' ? Math.max(currentState.freezeCount, 3) : currentState.freezeCount,
+    };
+    saveAppState(updated);
+    setAppMode(targetMode);
+    setShowModeModal(false);
+    setModeKey((k) => k + 1); // remount TodayScreen with fresh state
   };
 
   return (
@@ -210,12 +242,18 @@ function AppShell() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/logo.png" alt="Iron75 logo" className="h-9 w-auto object-contain" />
             </div>
-            <div
-              className="text-xs px-2 py-1 rounded-full font-bold"
-              style={{ background: 'rgba(255,107,53,0.15)', border: '1px solid rgba(255,107,53,0.4)', color: '#FF6B35' }}
+            <motion.button
+              onClick={handleModeToggleClick}
+              whileTap={{ scale: 0.95 }}
+              className="text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5"
+              style={
+                appMode === '75hard'
+                  ? { background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#A855F7' }
+                  : { background: 'rgba(255,107,53,0.15)', border: '1px solid rgba(255,107,53,0.4)', color: '#FF6B35' }
+              }
             >
-              75 Hard
-            </div>
+              {appMode === '75hard' ? '🔒 75 Hard' : '🏋️ Workout'}
+            </motion.button>
           </header>
         )}
 
@@ -234,6 +272,18 @@ function AppShell() {
             </div>
             <div className="flex items-center gap-2">
               <motion.button
+                onClick={handleModeToggleClick}
+                whileTap={{ scale: 0.95 }}
+                className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full"
+                style={
+                  appMode === '75hard'
+                    ? { background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.3)', color: '#A855F7' }
+                    : { background: 'rgba(255,107,53,0.15)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35' }
+                }
+              >
+                {appMode === '75hard' ? '🔒 75 Hard Mode' : '🏋️ Workout Mode'}
+              </motion.button>
+              <motion.button
                 onClick={() => {
                   // Derive startDate on-demand if the milestone path didn't set it.
                   if (!wrappedStartDate) {
@@ -249,7 +299,7 @@ function AppShell() {
                 style={{ background: 'rgba(255,107,53,0.15)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35' }}
                 whileTap={{ scale: 0.95 }}
               >
-                �� Weekly Wrapped
+                📊 Weekly Wrapped
               </motion.button>
             </div>
           </header>
@@ -280,7 +330,7 @@ function AppShell() {
               transition={{ duration: 0.18, ease: 'easeInOut' }}
               className="min-h-full"
             >
-              {activeTab === 'today' && <TodayScreen />}
+              {activeTab === 'today' && <TodayScreen key={modeKey} />}
               {activeTab === 'workout' && <WorkoutScreen />}
               {activeTab === 'progress' && <ProgressScreen />}
               {activeTab === 'ai' && <AICoachScreen />}
@@ -353,6 +403,112 @@ function AppShell() {
           </nav>
         )}
       </div>
+
+      {/* ── Mode Confirmation Modal ───────────────────────────────────────── */}
+      <AnimatePresence>
+        {showModeModal && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center p-6"
+            style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-full max-w-sm rounded-3xl p-6 flex flex-col gap-4"
+              style={{ background: '#0e0e22', border: '1px solid rgba(255,255,255,0.1)' }}
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+            >
+              {targetMode === '75hard' ? (
+                <>
+                  <div className="text-2xl text-center">🔒</div>
+                  <h2 className="text-lg font-black text-white text-center">Switching to 75 Hard Mode</h2>
+                  <ul className="flex flex-col gap-2 text-sm" style={{ color: '#94A3B8' }}>
+                    <li>• No streak freezes — any missed day resets the challenge</li>
+                    <li>• You must complete 75 consecutive days</li>
+                    <li>• Your current streak becomes your challenge progress</li>
+                  </ul>
+                  <div className="rounded-xl px-4 py-3 text-sm font-bold text-center"
+                    style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#A855F7' }}>
+                    Your current streak carries over when you switch modes
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-2xl text-center">🏋️</div>
+                  <h2 className="text-lg font-black text-white text-center">Leaving 75 Hard Mode</h2>
+                  <ul className="flex flex-col gap-2 text-sm" style={{ color: '#94A3B8' }}>
+                    <li>• Streak freezes re-enabled (min. 3 freezes restored)</li>
+                    <li>• You can miss days without losing your streak if freezes remain</li>
+                    <li>• Your workout progress and logs are preserved</li>
+                  </ul>
+                </>
+              )}
+              <div className="flex gap-3 mt-2">
+                <button
+                  onClick={() => setShowModeModal(false)}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm"
+                  style={{ background: 'rgba(255,255,255,0.05)', color: '#64748B', border: '1px solid rgba(255,255,255,0.08)' }}
+                >
+                  Cancel
+                </button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleModeConfirm}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm"
+                  style={
+                    targetMode === '75hard'
+                      ? { background: 'rgba(168,85,247,0.2)', color: '#A855F7', border: '1px solid rgba(168,85,247,0.4)' }
+                      : { background: 'rgba(255,107,53,0.2)', color: '#FF6B35', border: '1px solid rgba(255,107,53,0.4)' }
+                  }
+                >
+                  Switch Mode
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Streak Too Low Error Modal ────────────────────────────────────── */}
+      <AnimatePresence>
+        {streakTooLow && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center p-6"
+            style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-full max-w-sm rounded-3xl p-6 flex flex-col gap-4"
+              style={{ background: '#0e0e22', border: '1px solid rgba(255,71,87,0.3)' }}
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+            >
+              <div className="text-3xl text-center">⚠️</div>
+              <h2 className="text-lg font-black text-white text-center">Not Enough Streak</h2>
+              <p className="text-sm text-center" style={{ color: '#94A3B8' }}>
+                You need at least a <span className="font-bold text-white">10-day streak</span> to enter 75 Hard Mode.
+              </p>
+              <p className="text-sm text-center" style={{ color: '#64748B' }}>
+                Current streak: <span className="font-bold" style={{ color: '#FF6B35' }}>{getAppState().streak} days</span>
+              </p>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setStreakTooLow(false)}
+                className="py-3 rounded-xl font-bold text-sm mt-2"
+                style={{ background: 'rgba(255,107,53,0.15)', color: '#FF6B35', border: '1px solid rgba(255,107,53,0.3)' }}
+              >
+                Keep Building Streak
+              </motion.button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Weekly Wrapped overlay ────────────────────────────────────────── */}
       {showWrapped && (

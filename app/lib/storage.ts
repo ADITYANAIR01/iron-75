@@ -4,7 +4,7 @@
 // asynchronously (fire-and-forget). Reads always come from localStorage first,
 // with a background sync-down on app load via syncFromSupabase().
 
-import { DailyLog, AppState, MoodEmoji, ExerciseState } from './types';
+import { DailyLog, AppState, AppMode, MoodEmoji, ExerciseState } from './types';
 import { createClient } from './supabase';
 import { syncCustomWorkoutsFromSupabase } from './customWorkouts';
 
@@ -16,6 +16,8 @@ const KEYS = {
   LONGEST_STREAK: 'iron75_longest_streak',
   TOTAL_RESTARTS: 'iron75_total_restarts',
   APP_STATE_UPDATED_AT: 'iron75_app_state_updated_at',
+  MODE: 'iron75_mode',
+  FREEZE_COUNT: 'iron75_freeze_count',
   DAILY_LOG: (date: string) => `iron75_dailylog_${date}`,
   WORKOUT_STATE: (date: string, sessionKey: string) => `iron75_workout_state_${date}_${sessionKey}`,
   WORKOUT_COMPLETE: (date: string, sessionKey: string) => `iron75_workout_complete_${date}_${sessionKey}`,
@@ -25,7 +27,7 @@ const KEYS = {
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 /** Returns YYYY-MM-DD in the user's LOCAL timezone, never UTC. */
-function localDateString(d: Date): string {
+export function localDateString(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -135,17 +137,41 @@ function defaultAppState(): AppState {
     startDate: getToday(),
     longestStreak: 0,
     totalRestarts: 0,
+    mode: 'workout',
+    freezeCount: 3,
   };
+}
+
+function toInt(raw: string | null, fallback: number): number {
+  const n = Number.parseInt(raw ?? '', 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeMode(raw: string | null): AppMode {
+  return raw === '75hard' || raw === 'workout' ? raw : 'workout';
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
 }
 
 export function getAppState(): AppState {
   if (typeof window === 'undefined') return defaultAppState();
+  const streak = Math.max(0, toInt(localStorage.getItem(KEYS.STREAK), 0));
+  const currentDay = clamp(toInt(localStorage.getItem(KEYS.DAY), 1), 1, 75);
+  const longestStreak = Math.max(0, toInt(localStorage.getItem(KEYS.LONGEST_STREAK), 0));
+  const totalRestarts = Math.max(0, toInt(localStorage.getItem(KEYS.TOTAL_RESTARTS), 0));
+  const mode = normalizeMode(localStorage.getItem(KEYS.MODE));
+  const freezeCount = clamp(toInt(localStorage.getItem(KEYS.FREEZE_COUNT), 3), 0, 5);
+
   return {
-    streak: parseInt(localStorage.getItem(KEYS.STREAK) ?? '0', 10),
-    currentDay: parseInt(localStorage.getItem(KEYS.DAY) ?? '1', 10),
+    streak,
+    currentDay,
     startDate: localStorage.getItem(KEYS.START_DATE) ?? getToday(),
-    longestStreak: parseInt(localStorage.getItem(KEYS.LONGEST_STREAK) ?? '0', 10),
-    totalRestarts: parseInt(localStorage.getItem(KEYS.TOTAL_RESTARTS) ?? '0', 10),
+    longestStreak,
+    totalRestarts,
+    mode,
+    freezeCount,
   };
 }
 
@@ -158,6 +184,8 @@ export function saveAppState(state: AppState): void {
   localStorage.setItem(KEYS.START_DATE, state.startDate);
   localStorage.setItem(KEYS.LONGEST_STREAK, String(state.longestStreak));
   localStorage.setItem(KEYS.TOTAL_RESTARTS, String(state.totalRestarts));
+  localStorage.setItem(KEYS.MODE, state.mode);
+  localStorage.setItem(KEYS.FREEZE_COUNT, String(state.freezeCount));
   localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, now);
   // 2. Mirror to Supabase (fire-and-forget)
   syncAppStateToSupabase(state, now);
@@ -179,6 +207,8 @@ async function syncAppStateToSupabase(state: AppState, updatedAt?: string): Prom
         start_date: state.startDate,
         longest_streak: state.longestStreak,
         total_restarts: state.totalRestarts,
+        mode: state.mode,
+        freeze_count: state.freezeCount,
         updated_at: updatedAt ?? new Date().toISOString(),
       },
       { onConflict: 'user_id' }
@@ -482,6 +512,8 @@ export async function syncFromSupabase(): Promise<void> {
         localStorage.setItem(KEYS.START_DATE, stateRow.start_date);
         localStorage.setItem(KEYS.LONGEST_STREAK, String(stateRow.longest_streak));
         localStorage.setItem(KEYS.TOTAL_RESTARTS, String(stateRow.total_restarts));
+        if (stateRow.mode) localStorage.setItem(KEYS.MODE, stateRow.mode);
+        if (stateRow.freeze_count != null) localStorage.setItem(KEYS.FREEZE_COUNT, String(stateRow.freeze_count));
         localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, cloudTs || new Date().toISOString());
         // Pull wrapped_shown_weeks from cloud
         if (stateRow.wrapped_shown_weeks) {
@@ -894,81 +926,84 @@ export function generateExportHTML(): string {
 }
 
 
-/** Keys that must never be wiped, no matter what reset is triggered. */
-const PROTECTED_KEYS = new Set(['iron75_user_name', 'iron75_fresh_start_used']);
-
 /**
- * Wipes all daily logs + app_state from localStorage AND Supabase,
- * then seeds a clean app_state with `startDate` so the first open on that
- * date shows Day 1 with streak 0.  Display name and one-time-use flag are preserved.
+ * Reconstructs app_state (streak, currentDay, startDate) by scanning cloud
+ * daily_logs and rebuilding the ACTIVE streak (today if complete, else
+ * yesterday if complete). It then walks backward over consecutive completed
+ * days to determine streak length/start date and saves the recovered state.
+ *
+ * Safe to call at any time — does NOT delete any data.
  */
-export async function resetForFreshStart(startDate: string): Promise<void> {
-  // 1. Remove all iron75_ keys except protected ones
-  if (typeof window !== 'undefined') {
-    // Clear pending sync queue first — prevents stale data from being re-pushed
-    localStorage.removeItem(PENDING_SYNC_KEY);
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('iron75_') && !PROTECTED_KEYS.has(key)) {
-        keysToRemove.push(key);
-      }
-    }
-    keysToRemove.forEach((k) => localStorage.removeItem(k));
-  }
-
-  // 2. Seed localStorage with the clean fresh-start state
-  const now = new Date().toISOString();
-  const fresh: AppState = {
-    streak: 0,
-    currentDay: 1,
-    startDate,
-    longestStreak: 0,
-    totalRestarts: 0,
-  };
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(KEYS.STREAK, '0');
-    localStorage.setItem(KEYS.DAY, '1');
-    localStorage.setItem(KEYS.START_DATE, startDate);
-    localStorage.setItem(KEYS.LONGEST_STREAK, '0');
-    localStorage.setItem(KEYS.TOTAL_RESTARTS, '0');
-    localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, now);
-    // Mark as used immediately — before any async work that could exit early
-    localStorage.setItem('iron75_fresh_start_used', 'true');
-  }
-
-  // 3. Mirror clean state to Supabase (fire-and-forget)
+export async function recoverStreakFromLogs(): Promise<AppState | null> {
   try {
     const userId = await getSupabaseUserId();
-    if (!userId) return;
+    if (!userId) return null;
     const supabase = createClient();
-    // Wipe all daily logs
-    await supabase.from('daily_logs').delete().eq('user_id', userId);
-    // Wipe all workout sessions
-    await supabase.from('workout_sessions').delete().eq('user_id', userId);
-    // Wipe progress photos
-    const { data: files } = await supabase.storage.from('progress-photos').list(userId);
-    if (files && files.length > 0) {
-      const paths = files.map((f) => `${userId}/${f.name}`);
-      await supabase.storage.from('progress-photos').remove(paths);
-    }
-    // Upsert clean app_state
-    await supabase.from('app_state').upsert(
-      {
-        user_id: userId,
-        streak: fresh.streak,
-        current_day: fresh.currentDay,
-        start_date: fresh.startDate,
-        longest_streak: fresh.longestStreak,
-        total_restarts: fresh.totalRestarts,
-        updated_at: now,
-      },
-      { onConflict: 'user_id' }
+
+    const { data: rows, error } = await supabase
+      .from('daily_logs')
+      .select('date, all_tasks_complete')
+      .eq('user_id', userId)
+      .order('date', { ascending: true });
+
+    if (error || !rows || rows.length === 0) return null;
+
+    const today = getToday();
+
+    // Build a set of dates where tasks were complete
+    const completedSet = new Set<string>(
+      rows.filter((r) => r.all_tasks_complete).map((r) => r.date as string)
     );
+
+    // Walk backwards from yesterday to find the streak end point
+    let streakEnd: string | null = null;
+    let d = new Date(today + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    // If today itself is already complete, count it too
+    if (completedSet.has(today)) {
+      streakEnd = today;
+    } else {
+      const yStr = localDateString(d);
+      if (completedSet.has(yStr)) {
+        streakEnd = yStr;
+      }
+    }
+
+    if (!streakEnd) {
+      // No completed days recently — can't recover a streak
+      return null;
+    }
+
+    // Walk backwards from streakEnd to find streak start
+    let streakCount = 0;
+    let cursor = new Date(streakEnd + 'T12:00:00');
+    while (completedSet.has(localDateString(cursor))) {
+      streakCount += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    // cursor is now one day before the streak started
+    cursor.setDate(cursor.getDate() + 1);
+    const streakStart = localDateString(cursor);
+
+    const currentState = getAppState();
+    const recovered: AppState = {
+      ...currentState,
+      streak: streakCount,
+      currentDay: Math.min(streakCount + 1, 75),
+      startDate: streakStart,
+      longestStreak: Math.max(currentState.longestStreak, streakCount),
+    };
+
+    saveAppState(recovered);
+    return recovered;
   } catch (err) {
-    console.warn('Supabase fresh-start reset failed (offline?):', err);
+    console.warn('recoverStreakFromLogs failed:', err);
+    return null;
   }
 }
+
+/** Keys that must never be wiped, no matter what reset is triggered. */
+const PROTECTED_KEYS = new Set(['iron75_user_name']);
 
 export async function deleteAllData(): Promise<void> {
   // 1. Clear all Iron75 keys from localStorage (preserve protected keys)
