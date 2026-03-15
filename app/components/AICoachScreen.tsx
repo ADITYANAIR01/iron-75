@@ -41,9 +41,24 @@ function buildCoachPrompt(state: AppState, log: DailyLog | null): string {
   const dietStr = dietItems.length > 0 ? dietItems.join(', ') : 'nothing logged yet';
   const bookStr = log?.readingBook?.trim() ? `"${log.readingBook}"` : 'not specified';
 
-  return `Iron75 ${mode} — Day ${state.currentDay}/75.
+  const tasksRemaining: string[] = [];
+  if (!log?.gymWorkoutDone) tasksRemaining.push('gym workout');
+  if (!log?.outdoorWalkDone) tasksRemaining.push('outdoor walk');
+  if ((log?.waterLiters ?? 0) < 3.8) tasksRemaining.push(`${(3.8 - (log?.waterLiters ?? 0)).toFixed(1)}L more water`);
+  if (!log?.readingDone) tasksRemaining.push('reading (10 pages)');
+  if (dietItems.length === 0) tasksRemaining.push('diet logging');
+  if (!log?.moodEmoji) tasksRemaining.push('mood check-in');
 
-Athlete profile: ${state.streak}-day current streak, longest ever ${state.longestStreak} days, ${state.totalRestarts} restarts.
+  const phaseName =
+    state.currentDay <= 7 ? 'Week 1 — Foundation' :
+    state.currentDay <= 21 ? 'Weeks 2-3 — Building Momentum' :
+    state.currentDay <= 35 ? 'Danger Zone — Most People Quit Here' :
+    state.currentDay <= 55 ? 'Forging Phase — Real Transformation' :
+    'Final Stretch — Finish Line Visible';
+
+  return `Iron75 ${mode} — Day ${state.currentDay}/75 (${phaseName}).
+
+Athlete profile: ${state.streak}-day current streak, longest ever ${state.longestStreak} days, ${state.totalRestarts} restarts.${state.mode === 'workout' ? ` Freeze charges remaining: ${state.freezeCount}/5.` : ''}
 Time of day: ${getTimeOfDay()}.
 
 Today's progress:
@@ -54,8 +69,9 @@ Today's progress:
 - Diet logged: ${dietStr}
 - Mood: ${log?.moodEmoji ? MOOD_LABEL[log.moodEmoji] : 'not logged yet'}
 - Energy: ${log?.energyLevel ?? '?'}/5 | Motivation: ${log?.motivationLevel ?? '?'}/5 | Soreness: ${log?.sorenessLevel ?? '?'}/5
+${tasksRemaining.length > 0 ? `\nTasks still remaining today: ${tasksRemaining.join(', ')}` : '\nAll tasks complete today!'}
 
-Write a 3-4 sentence coaching insight that directly references their actual stats above. Name specific numbers. Tell them exactly what they still need to do today and why. Add one precise, science-based tip targeting their energy or soreness level. End with a single fire emoji.`;
+Write a 3-4 sentence coaching insight using the stats above. Prioritize any remaining tasks. End with 🔥.`;
 }
 
 function buildPatternPrompt(state: AppState, recentLogs: DailyLog[]): string {
@@ -81,6 +97,17 @@ function buildPatternPrompt(state: AppState, recentLogs: DailyLog[]): string {
   const avgSoreness   = (recentLogs.reduce((s, l) => s + l.sorenessLevel, 0) / n).toFixed(1);
   const avgMotivation = (recentLogs.reduce((s, l) => s + l.motivationLevel, 0) / n).toFixed(1);
 
+  // Find weakest and strongest areas
+  const rates = [
+    { task: 'Gym', rate: pct(gymDays) },
+    { task: 'Walk', rate: pct(walkDays) },
+    { task: 'Reading', rate: pct(readingDays) },
+    { task: 'Water', rate: pct(waterGoalDays) },
+    { task: 'Diet logging', rate: pct(dietDays) },
+  ];
+  const weakest = rates.reduce((a, b) => a.rate < b.rate ? a : b);
+  const strongest = rates.reduce((a, b) => a.rate > b.rate ? a : b);
+
   return `Iron75 ${state.mode === '75hard' ? '75 HARD' : 'Workout'} Mode — Performance Analysis: Last ${n} Days.
 
 Overall: ${state.streak} current streak, Day ${state.currentDay}/75.
@@ -97,29 +124,35 @@ Averages:
 - Water: ${avgWater}L/day
 - Mood: ${avgMood}/5 | Energy: ${avgEnergy}/5 | Motivation: ${avgMotivation}/5 | Soreness: ${avgSoreness}/5
 
-Identify the single weakest metric from the completion rates and explain in 3-4 sentences exactly why it's holding them back and what to do differently this week. Use actual percentages from the data. Be direct and specific — no generic coaching platitudes.`;
+Key finding: Weakest area is ${weakest.task} at ${weakest.rate}%. Strongest is ${strongest.task} at ${strongest.rate}%.
+
+Give a 3-4 sentence analysis. Weakest: ${weakest.task} (${weakest.rate}%). Identify why it matters and one concrete action this week.`;
 }
 
 function buildMotivationPrompt(state: AppState): string {
   const phase =
     state.currentDay >= 60 ? 'final stretch — under 15 days left' :
     state.currentDay >= 45 ? 'elite territory — past the 60% mark' :
-    state.currentDay >= 30 ? 'one full month in — momentum zone' :
-    state.currentDay >= 14 ? 'second week — when most people quit' :
-    'brutal first two weeks — forging identity';
+    state.currentDay >= 30 ? 'one full month in — momentum phase' :
+    state.currentDay >= 14 ? 'second/third week — the point where most people quit' :
+    'the brutal first two weeks — forging identity';
 
   const streakContext =
-    state.streak >= 30 ? `${state.streak}-day streak — they are elite.` :
-    state.streak >= 14 ? `${state.streak}-day streak — momentum is real.` :
-    state.streak >= 7  ? `${state.streak}-day streak — the habit is forming.` :
-    `${state.streak}-day streak — every day counts now.`;
+    state.streak >= 30 ? `${state.streak}-day streak — they are in the top 5% of attempts.` :
+    state.streak >= 14 ? `${state.streak}-day streak — momentum is undeniable.` :
+    state.streak >= 7  ? `${state.streak}-day streak — the habit is forming but still fragile.` :
+    `${state.streak}-day streak — every single day counts right now.`;
+
+  const daysLeft = 75 - state.currentDay;
+  const percentComplete = Math.round((state.currentDay / 75) * 100);
 
   return `Iron75 ${state.mode === '75hard' ? '75 HARD' : 'Workout'} Mode.
-Day ${state.currentDay}/75 — ${phase}.
+Day ${state.currentDay}/75 — ${percentComplete}% complete — ${daysLeft} days remaining — ${phase}.
 ${streakContext}
-${state.totalRestarts > 0 ? `They've restarted ${state.totalRestarts} time(s). They know what failure feels like and are still here.` : "They haven't restarted. The streak is clean."}
+${state.totalRestarts > 0 ? `They've restarted ${state.totalRestarts} time(s). They know what failure tastes like and chose to come back. That takes more guts than starting fresh.` : "Zero restarts. The streak is clean. They haven't broken once."}
+${state.mode === 'workout' ? `Freeze charges: ${state.freezeCount}/5 remaining.` : ''}
 
-Write a 3-sentence locker-room speech. Mention their specific day and streak. Make it feel like the final minutes of a championship — raw, direct, urgent. End with 🔥`;
+3-sentence locker-room speech. Raw, direct, urgent. Reference their day, streak, and phase. End with 🔥.`;
 }
 
 function buildRecoveryPrompt(state: AppState, log: DailyLog | null): string {
@@ -139,7 +172,7 @@ function buildRecoveryPrompt(state: AppState, log: DailyLog | null): string {
 Current status: Day ${state.currentDay}/75, ${sorenessContext}, energy ${energy}/5.
 Training frequency: 7 days/week, no rest days allowed by the challenge rules.
 
-Give exactly 4 science-backed recovery protocols numbered 1-4. Each must be 2-3 sentences with specific quantities, durations, or dosages. Tailor the advice directly to the soreness level above — if soreness is high, prioritize it. No filler. Only actionable specifics.`;
+Give 4 numbered recovery protocols. Each: 1-2 sentences, specific quantities/timing. Tailored to the soreness level above.`;
 }
 
 function buildNutritionPrompt(state: AppState, log: DailyLog | null): string {
@@ -158,7 +191,7 @@ Water consumed: ${(log?.waterLiters ?? 0).toFixed(1)}L (goal: 3.8L)
 Workout status: gym ${log?.gymWorkoutDone ? 'done' : 'pending'}, walk ${log?.outdoorWalkDone ? 'done' : 'pending'}
 Energy: ${log?.energyLevel ?? '?'}/5 | Soreness: ${log?.sorenessLevel ?? '?'}/5
 
-Based exactly on what they've logged today, give 3 targeted nutrition adjustments. Name specific foods with quantities and timing. Address protein targets (1.8-2.2g/kg), carb timing around workouts, and any obvious gaps in their log. No generic advice — respond to their actual meals above.`;
+Give 3 targeted adjustments based on the meals above. Specific foods, quantities, and timing.`;
 }
 
 // ── Challenge definitions ────────────────────────────────────────────────────
@@ -200,6 +233,25 @@ function ResponseText({ text }: { text: string }) {
   );
 }
 
+// ── Per-day localStorage cache for coach responses ────────────────────────────
+const COACH_CACHE_PREFIX = 'iron75_coach_';
+
+function loadCoachCache(today: string): Partial<Record<ChallengeId, string>> {
+  if (typeof window === 'undefined') return {};
+  const result: Partial<Record<ChallengeId, string>> = {};
+  const ids: ChallengeId[] = ['tip', 'pattern', 'motivation', 'recovery', 'nutrition'];
+  ids.forEach((id) => {
+    const raw = localStorage.getItem(`${COACH_CACHE_PREFIX}${id}_${today}`);
+    if (raw) result[id] = raw;
+  });
+  return result;
+}
+
+function saveCoachCache(id: ChallengeId, text: string, today: string) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(`${COACH_CACHE_PREFIX}${id}_${today}`, text);
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 export default function AICoachScreen() {
@@ -226,6 +278,9 @@ export default function AICoachScreen() {
     setMounted(true);
     setState(getAppState());
     setLog(getDailyLog(getToday()));
+    // Hydrate in-memory responses from localStorage cache (survives tab switches)
+    const cached = loadCoachCache(getToday());
+    if (Object.keys(cached).length > 0) setResponses(cached);
   }, []);
 
   const handleAsk = useCallback(async (challengeId: ChallengeId) => {
@@ -263,6 +318,7 @@ export default function AICoachScreen() {
 
     const text = await askGemini(prompt, challengeId);
     setResponses((prev) => ({ ...prev, [challengeId]: text }));
+    saveCoachCache(challengeId, text, getToday());
     setLoading(null);
   }, []); // no deps needed — all reads go through refs
 

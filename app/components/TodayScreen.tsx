@@ -14,7 +14,8 @@ import { initializeStreakOnLoad, completeTodayStreak, getDaysToGoal, isPastTenPM
 import { DailyLog, AppState, MoodEmoji } from '../lib/types';
 import WaterBottle from './WaterBottle';
 import CelebrationOverlay from './CelebrationOverlay';
-import { getDailyTip, getMotivationalQuote, getTipCategory } from '../lib/aiTips';
+import { getDailyTip, getMotivationalQuote, fetchAIQuote, getTipCategory } from '../lib/aiTips';
+import { askGemini } from '../lib/gemini';
 
 const MOODS: { value: MoodEmoji; emoji: string; label: string; color: string }[] = [
   { value: 'great', emoji: '😄', label: 'Great', color: '#00F5D4' },
@@ -210,6 +211,7 @@ export default function TodayScreen() {
   const [tipDismissed, setTipDismissed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [aiQuote, setAiQuote] = useState<{ quote: string; author: string } | null>(null);
   const celebrationFiredRef = useRef(false);
   // Monotonically increasing ID — incremented on every new photo upload and on
   // removal so we can detect and discard results from stale async uploads.
@@ -223,6 +225,12 @@ export default function TodayScreen() {
     setLog(todayLog);
     celebrationFiredRef.current = todayLog.celebrationShown || false;
   }, []);
+
+  // Fetch AI-powered quote (shows static fallback instantly, upgrades async)
+  useEffect(() => {
+    if (!mounted || appState.currentDay < 1) return;
+    fetchAIQuote(appState.currentDay, askGemini).then(setAiQuote).catch(() => {});
+  }, [mounted, appState.currentDay]);
 
   const updateLog = useCallback(
     (updater: (prev: DailyLog) => DailyLog) => {
@@ -421,7 +429,7 @@ export default function TodayScreen() {
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
   const daysToGoal = getDaysToGoal();
-  const quote = getMotivationalQuote(appState.currentDay);
+  const quote = aiQuote ?? getMotivationalQuote(appState.currentDay);
   const tipCategory = getTipCategory(appState.currentDay);
 
   return (

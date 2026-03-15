@@ -1005,6 +1005,71 @@ export async function recoverStreakFromLogs(): Promise<AppState | null> {
 /** Keys that must never be wiped, no matter what reset is triggered. */
 const PROTECTED_KEYS = new Set(['iron75_user_name']);
 
+/**
+ * Resets the challenge to Day 1 while keeping the user's profile and account.
+ * Clears all daily logs, workout sessions, and app state (both local + cloud).
+ * Preserves: user name, auth session, custom workout definitions.
+ */
+export async function resetChallenge(mode: AppMode = 'workout'): Promise<AppState> {
+  const today = getToday();
+  const currentState = getAppState();
+
+  // 1. Clear local daily logs, workout states, and streak check guard
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(PENDING_SYNC_KEY);
+    localStorage.removeItem('iron75_streak_check_date');
+    localStorage.removeItem('iron75_goal_date');
+    localStorage.removeItem(KEYS.WRAPPED_SHOWN);
+    // Clear stale exercise overrides so new pplData exercises show correctly
+    localStorage.removeItem('iron75_default_session_overrides');
+    // Clear cached AI quote so a fresh one is fetched
+    localStorage.removeItem('iron75_ai_quote');
+    localStorage.removeItem('iron75_ai_quote_date');
+
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (
+        key.startsWith('iron75_dailylog_') ||
+        key.startsWith('iron75_workout_state_') ||
+        key.startsWith('iron75_workout_complete_') ||
+        key.startsWith('iron75_workout_ts_')
+      )) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  }
+
+  // 2. Build fresh app state
+  const newState: AppState = {
+    streak: 0,
+    currentDay: 1,
+    startDate: today,
+    longestStreak: Math.max(currentState.longestStreak, currentState.streak),
+    totalRestarts: currentState.totalRestarts + 1,
+    mode,
+    freezeCount: mode === 'workout' ? 3 : 0,
+  };
+  saveAppState(newState);
+
+  // 3. Clean cloud data (fire-and-forget)
+  try {
+    const userId = await getSupabaseUserId();
+    if (userId) {
+      const supabase = createClient();
+      await Promise.all([
+        supabase.from('daily_logs').delete().eq('user_id', userId),
+        supabase.from('workout_sessions').delete().eq('user_id', userId),
+      ]);
+    }
+  } catch (err) {
+    console.warn('Cloud reset failed (offline?):', err);
+  }
+
+  return newState;
+}
+
 export async function deleteAllData(): Promise<void> {
   // 1. Clear all Iron75 keys from localStorage (preserve protected keys)
   if (typeof window !== 'undefined') {

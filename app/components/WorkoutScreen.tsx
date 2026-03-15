@@ -272,17 +272,21 @@ export default function WorkoutScreen() {
   }, [showPlanner, mounted, todayDow]);
 
   // Resolve current session (handles both PPL keys and custom IDs)
+  // Memoize to avoid creating a new object on every render (which would
+  // cause the useEffect below to fire infinitely).
   const session: SessionSpec = (() => {
     const found = getSessionById(selectedSessionKey);
     if (found) return found;
     return getSessionById('pushA') ?? SESSIONS['pushA'];
   })();
+  const sessionKey = session.key;
 
   useEffect(() => {
     if (!mounted) return;
     setExerciseStates(loadWorkoutState(today, session));
-    setSessionComplete(isWorkoutComplete(today, session.key));
-  }, [selectedSessionKey, mounted, today, session]);
+    setSessionComplete(isWorkoutComplete(today, sessionKey));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSessionKey, mounted, today]);
 
   const updateExercise = useCallback(
     (exName: string, next: ExerciseState) => {
@@ -311,7 +315,8 @@ export default function WorkoutScreen() {
         setSessionComplete(true);
       }
     }
-  }, [exerciseStates, session.exercises, session.key, sessionComplete, today, mounted]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exerciseStates, sessionKey, sessionComplete, today, mounted]);
 
   const totalSets = session.exercises.reduce((s, ex) => s + ex.sets, 0);
   const doneSets = session.exercises.reduce(

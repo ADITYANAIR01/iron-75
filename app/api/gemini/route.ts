@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? '';
 const GEMINI_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
 
 // ── Simple in-memory rate limiter (per-user, resets every 60 s) ─────────────
 const MAX_REQUESTS = 10;
@@ -84,13 +84,13 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         systemInstruction: {
           parts: [{
-            text: 'You are an elite, no-nonsense fitness and mindset coach for Iron75 — a rigorous 75-day transformation challenge. Your responses are concise, direct, and intensely motivating. You never use filler phrases like "Great job!" or "Of course!". You give specific, data-driven, actionable advice. You treat the user like a high-performance athlete. Use plain text only — no markdown headers, no bullet points with dashes, just clean formatted paragraphs. You may use numbered lists when listing steps. Keep responses tight and punchy.',
+            text: 'You are a direct, data-driven Iron75 coach (75-day fitness challenge: PPL gym, walk, water, reading, diet). Be concise and specific. Reference actual user numbers. No filler. Plain text only.',
           }],
         },
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          maxOutputTokens: 600,
-          temperature: 0.78,
+          maxOutputTokens: 350,
+          temperature: 0.8,
           topP: 0.9,
         },
         safetySettings: [

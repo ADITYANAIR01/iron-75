@@ -185,6 +185,7 @@ export function getTipCategory(day: number): { category: string; color: string; 
 
 export function getMotivationalQuote(day: number): { quote: string; author: string } {
   const QUOTES = [
+    // ── Week 1: Starting strong ──────────────────────────────────────
     { quote: 'The only bad workout is the one that didn\'t happen.', author: 'Unknown' },
     { quote: 'Discipline is choosing between what you want NOW and what you want MOST.', author: 'Abraham Lincoln' },
     { quote: 'The body achieves what the mind believes.', author: 'Napoleon Hill' },
@@ -192,6 +193,8 @@ export function getMotivationalQuote(day: number): { quote: string; author: stri
     { quote: 'You don\'t have to be extreme, just consistent.', author: 'Iron75' },
     { quote: 'The pain you feel today will be the strength you feel tomorrow.', author: 'Arnold Schwarzenegger' },
     { quote: 'Success isn\'t always about greatness. It\'s about consistency.', author: 'Dwayne Johnson' },
+
+    // ── Week 2: Building momentum ────────────────────────────────────
     { quote: 'Champions aren\'t made in gyms. They\'re made from something deep inside.', author: 'Muhammad Ali' },
     { quote: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },
     { quote: 'I hated every minute of training, but I said, don\'t quit.', author: 'Muhammad Ali' },
@@ -199,22 +202,137 @@ export function getMotivationalQuote(day: number): { quote: string; author: stri
     { quote: 'The only person you are destined to become is the person you decide to be.', author: 'Ralph Waldo Emerson' },
     { quote: 'Fall seven times, stand up eight.', author: 'Japanese Proverb' },
     { quote: 'Your body can stand almost anything. It\'s your mind you have to convince.', author: 'Unknown' },
+
+    // ── Week 3: Pushing through ──────────────────────────────────────
     { quote: 'Don\'t count the days, make the days count.', author: 'Muhammad Ali' },
     { quote: 'It never gets easier. You just get stronger.', author: 'Unknown' },
     { quote: 'Motivation gets you started. Habit keeps you going.', author: 'Jim Ryun' },
     { quote: 'We are what we repeatedly do. Excellence, then, is not an act but a habit.', author: 'Aristotle' },
-    { quote: 'The difference between a successful person and others is not lack of strength, not a lack of knowledge, but rather a lack in will.', author: 'Vince Lombardi' },
+    { quote: 'The difference between a successful person and others is not lack of strength, but rather lack in will.', author: 'Vince Lombardi' },
     { quote: 'If it doesn\'t challenge you, it doesn\'t change you.', author: 'Fred DeVito' },
-    { quote: 'The last three or four reps is what makes the muscle grow. This area of pain divides the champion from someone else who is not a champion.', author: 'Arnold Schwarzenegger' },
+    { quote: 'The last three or four reps is what makes the muscle grow.', author: 'Arnold Schwarzenegger' },
+
+    // ── Week 4: Identity shift ───────────────────────────────────────
     { quote: 'You don\'t find willpower. You build it.', author: 'Iron75' },
     { quote: 'The goal is not to be better than the other man, but your previous self.', author: 'Dalai Lama' },
-    { quote: 'Sweat is just fat crying.', author: 'Unknown' },
     { quote: 'Take care of your body. It\'s the only place you have to live.', author: 'Jim Rohn' },
-    { quote: 'First, forget inspiration. Habit is more dependable. Habit will sustain you whether you\'re inspired or not.', author: 'Octavia Butler' },
-    { quote: 'To keep the body in good health is a duty — otherwise we shall not be able to keep our mind strong and clear.', author: 'Buddha' },
+    { quote: 'First, forget inspiration. Habit is more dependable.', author: 'Octavia Butler' },
+    { quote: 'To keep the body in good health is a duty.', author: 'Buddha' },
     { quote: 'The successful warrior is the average man, with laser-like focus.', author: 'Bruce Lee' },
-    { quote: 'No pain, no gain. Shut up and train.', author: 'Unknown' },
+    { quote: 'No man has the right to be an amateur in the matter of physical training.', author: 'Socrates' },
+
+    // ── Week 5: Mental fortitude ─────────────────────────────────────
+    { quote: 'Suffer the pain of discipline or suffer the pain of regret.', author: 'Jim Rohn' },
+    { quote: 'The hard days are the best because that\'s when champions are made.', author: 'Gabby Douglas' },
+    { quote: 'The resistance that you fight physically in the gym and the resistance that you fight in life can only build a strong character.', author: 'Arnold Schwarzenegger' },
+    { quote: 'Training gives us an outlet for suppressed energies created by stress and thus tones the spirit just as exercise conditions the body.', author: 'Arnold Schwarzenegger' },
+    { quote: 'The mind is the limit. As long as the mind can envision the fact that you can do something, you can do it.', author: 'Arnold Schwarzenegger' },
+    { quote: 'Do something today that your future self will thank you for.', author: 'Sean Patrick Flanery' },
+    { quote: 'The clock is ticking. Are you becoming the person you want to be?', author: 'Greg Plitt' },
+
+    // ── Week 6: No shortcuts ─────────────────────────────────────────
+    { quote: 'There are no shortcuts. Everything is reps, reps, reps.', author: 'Arnold Schwarzenegger' },
+    { quote: 'Action is the foundational key to all success.', author: 'Pablo Picasso' },
+    { quote: 'You must expect great things of yourself before you can do them.', author: 'Michael Jordan' },
     { quote: 'The only way to define your limits is by going beyond them.', author: 'Arthur C. Clarke' },
+    { quote: 'Obsessed is a word the lazy use to describe the dedicated.', author: 'Unknown' },
+    { quote: 'Be stronger than your strongest excuse.', author: 'Unknown' },
+    { quote: 'The iron never lies to you. Two hundred pounds is always two hundred pounds.', author: 'Henry Rollins' },
+
+    // ── Week 7: Proving it ───────────────────────────────────────────
+    { quote: 'Strive for progress, not perfection.', author: 'Unknown' },
+    { quote: 'The only impossible journey is the one you never begin.', author: 'Tony Robbins' },
+    { quote: 'You were given this life because you are strong enough to live it.', author: 'Unknown' },
+    { quote: 'When you feel like quitting, think about why you started.', author: 'Unknown' },
+    { quote: 'Dead last is greater than did not finish, which trumps did not start.', author: 'Unknown' },
+    { quote: 'Once you learn to quit, it becomes a habit.', author: 'Vince Lombardi' },
+    { quote: 'The real workout starts when you want to stop.', author: 'Ronnie Coleman' },
+
+    // ── Week 8: Forging iron ─────────────────────────────────────────
+    { quote: 'Nothing will work unless you do.', author: 'Maya Angelou' },
+    { quote: 'Everybody wants to be a bodybuilder, but don\'t nobody want to lift no heavy weights.', author: 'Ronnie Coleman' },
+    { quote: 'What we do in life echoes in eternity.', author: 'Marcus Aurelius' },
+    { quote: 'The pain of today is the victory of tomorrow.', author: 'Unknown' },
+    { quote: 'Good things come to those who sweat.', author: 'Unknown' },
+    { quote: 'Pain is temporary. Quitting lasts forever.', author: 'Lance Armstrong' },
+    { quote: 'A year from now, you will wish you had started today.', author: 'Karen Lamb' },
+
+    // ── Week 9: Character built ──────────────────────────────────────
+    { quote: 'Strength does not come from the physical capacity. It comes from an indomitable will.', author: 'Mahatma Gandhi' },
+    { quote: 'Our greatest glory is not in never falling, but in rising every time we fall.', author: 'Confucius' },
+    { quote: 'The man who moves a mountain begins by carrying away small stones.', author: 'Confucius' },
+    { quote: 'What lies behind us and what lies before us are tiny matters compared to what lies within us.', author: 'Ralph Waldo Emerson' },
+    { quote: 'The best project you will ever work on is you.', author: 'Unknown' },
+    { quote: 'Don\'t wish it were easier. Wish you were better.', author: 'Jim Rohn' },
+    { quote: 'Some people want it to happen, some wish it would happen, others make it happen.', author: 'Michael Jordan' },
+
+    // ── Week 10: Unstoppable ─────────────────────────────────────────
+    { quote: 'It\'s not about perfect. It\'s about effort. When you bring that effort every single day, transformation happens.', author: 'Jillian Michaels' },
+    { quote: 'The body is the servant of the mind. It obeys the operations of the mind.', author: 'James Allen' },
+    { quote: 'Success is what comes after you stop making excuses.', author: 'Luis Galarza' },
+    { quote: 'You can have results or excuses, not both.', author: 'Arnold Schwarzenegger' },
+    { quote: 'The only person you are destined to become is the person you decide to be.', author: 'Ralph Waldo Emerson' },
+
+    // ── Week 11: The final push ──────────────────────────────────────
+    { quote: 'Hard work beats talent when talent doesn\'t work hard.', author: 'Tim Notke' },
+    { quote: 'Your only limit is you.', author: 'Unknown' },
+    { quote: 'The finish line is just the beginning of a whole new race.', author: 'Unknown' },
+    { quote: 'I am not what happened to me. I am what I choose to become.', author: 'Carl Jung' },
+    { quote: 'You have survived 100% of your worst days. You\'re doing great.', author: 'Unknown' },
+    { quote: 'The ones who are crazy enough to think they can change the world are the ones that do.', author: 'Steve Jobs' },
+    { quote: 'Every champion was once a contender that refused to give up.', author: 'Rocky Balboa' },
   ];
   return QUOTES[(day - 1) % QUOTES.length];
 }
+
+const QUOTE_CACHE_KEY = 'iron75_ai_quote';
+const QUOTE_CACHE_DATE_KEY = 'iron75_ai_quote_date';
+// Tracks whether we already attempted (and failed) today — prevents retrying on every mount
+const QUOTE_FAILED_KEY = 'iron75_ai_quote_failed_date';
+
+/**
+ * Fetches a fresh motivational quote via Gemini for the given day.
+ * Returns a cached version if already fetched today. If the API call
+ * fails, records the failure date so subsequent mounts skip the API
+ * call and go straight to the local pool (avoids hammering quota).
+ */
+export async function fetchAIQuote(
+  day: number,
+  askGeminiFn: (prompt: string) => Promise<string>
+): Promise<{ quote: string; author: string }> {
+  if (typeof window === 'undefined') return getMotivationalQuote(day);
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Return cached success
+  const cachedDate = localStorage.getItem(QUOTE_CACHE_DATE_KEY);
+  const cachedQuote = localStorage.getItem(QUOTE_CACHE_KEY);
+  if (cachedDate === today && cachedQuote) {
+    try { return JSON.parse(cachedQuote); } catch { /* fall through */ }
+  }
+
+  // Skip if we already failed today (quota exhausted, network error, etc.)
+  if (localStorage.getItem(QUOTE_FAILED_KEY) === today) {
+    return getMotivationalQuote(day);
+  }
+
+  try {
+    const prompt = `Day ${day}/75 Iron75 challenge. Return ONLY JSON: {"quote":"<discipline quote>","author":"<name or Iron75>"}`;
+    const raw = await askGeminiFn(prompt);
+    const jsonMatch = raw.match(/\{[\s\S]*?"quote"[\s\S]*?"author"[\s\S]*?\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.quote && parsed.author) {
+        const result = { quote: parsed.quote, author: parsed.author };
+        localStorage.setItem(QUOTE_CACHE_KEY, JSON.stringify(result));
+        localStorage.setItem(QUOTE_CACHE_DATE_KEY, today);
+        return result;
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Record failure so we don't retry until tomorrow
+  localStorage.setItem(QUOTE_FAILED_KEY, today);
+  return getMotivationalQuote(day);
+}
+

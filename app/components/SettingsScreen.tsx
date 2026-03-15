@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useRef } from 'react';
-import { getAppState, saveAppState, getToday, saveProfileName, generateExportHTML, deleteAllData, recoverStreakFromLogs } from '../lib/storage';
+import { getAppState, saveProfileName, generateExportHTML, deleteAllData, recoverStreakFromLogs, resetChallenge } from '../lib/storage';
 import { AppState } from '../lib/types';
 import { useAuth } from './AuthProvider';
 
@@ -48,20 +48,12 @@ export default function SettingsScreen() {
     return () => { saveProfileName(nameRef.current); };
   }, []);
 
-  const handleRestartChallenge = () => {
+  const handleRestartChallenge = async () => {
     if (!state) return;
-    const newState: AppState = {
-      ...state,
-      streak: 0,
-      currentDay: 1,
-      startDate: getToday(),
-      totalRestarts: state.totalRestarts + 1,
-      freezeCount: state.mode === 'workout' ? 3 : state.freezeCount,
-    };
-    saveAppState(newState);
+    const newState = await resetChallenge(state.mode);
     setState(newState);
     setShowConfirmReset(false);
-    setToast('Challenge restarted. Day 1 begins today! 🔥');
+    setToast('Challenge restarted. Day 1 begins today!');
     setTimeout(() => setToast(''), 3000);
   };
 
