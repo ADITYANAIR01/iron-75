@@ -7,7 +7,6 @@
 import { DailyLog, AppState, MoodEmoji, ExerciseState, UserFocus } from './types';
 import { createClient } from './supabase';
 import { syncCustomWorkoutsFromSupabase } from './customWorkouts';
-import { syncAccountabilityCircleProfileWithCloudOverrides } from './accountability';
 
 // ── Key helpers ───────────────────────────────────────────────────────────────
 const KEYS = {
@@ -579,8 +578,6 @@ export async function syncFromSupabase(): Promise<void> {
       const localState = getAppState();
       syncAppStateToSupabase(localState, localAppStateUpdatedAt);
     }
-
-    await syncAccountabilityCircleProfileWithCloudOverrides(stateRow?.default_session_overrides ?? null);
 
     // Sync daily_logs — compare per-date timestamps, keep newer version per day
     const { data: cloudLogs } = await supabase

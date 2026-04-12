@@ -1,7 +1,7 @@
 // ─── GrindOs Service Worker ──────────────────────────────────────────────────
 // Provides offline support, smart caching, and PWA installability.
 
-const CACHE_VERSION = 'grindos-v1';
+const CACHE_VERSION = 'grindos-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const MAX_DYNAMIC_ENTRIES = 50;
@@ -55,8 +55,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets (JS, CSS, images, fonts): cache-first
-  if (/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|webp)$/i.test(url.pathname)) {
+  // Never cache Next.js runtime/build chunks; stale chunks can break module loading.
+  if (url.pathname.startsWith('/_next/')) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // Static assets (images/fonts): cache-first
+  if (/\.(png|jpg|jpeg|gif|svg|ico|woff|woff2|webp)$/i.test(url.pathname)) {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) return cached;

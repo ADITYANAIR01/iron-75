@@ -8,10 +8,17 @@ const REQUIRED_SUPABASE_ENV_VARS = [
 type RequiredSupabaseEnvVar = (typeof REQUIRED_SUPABASE_ENV_VARS)[number];
 
 function getMissingSupabaseEnvVars(): RequiredSupabaseEnvVar[] {
-  return REQUIRED_SUPABASE_ENV_VARS.filter((name) => {
-    const value = process.env[name];
-    return !value || value.trim().length === 0;
-  });
+  const missing: RequiredSupabaseEnvVar[] = [];
+  
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL.trim().length === 0) {
+    missing.push('NEXT_PUBLIC_SUPABASE_URL');
+  }
+  
+  if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.trim().length === 0) {
+    missing.push('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  }
+  
+  return missing;
 }
 
 export function getSupabaseConfigError(): string | null {

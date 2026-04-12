@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useRef } from 'react';
 import {
   getAppState,
-  getDailyLog,
   saveProfileName,
   generateExportHTML,
   deleteAllData,
@@ -13,20 +12,8 @@ import {
   getUserFocus,
   saveUserFocus,
 } from '../lib/storage';
-import { AppState, DailyLog, UserFocus } from '../lib/types';
+import { AppState, UserFocus } from '../lib/types';
 import { getLocalDataHealthSnapshot, LocalDataHealthSnapshot } from '../lib/dataHealth';
-import {
-  AccountabilityCircleProfile,
-  WeeklyAccountabilityStatus,
-  buildWeeklyAccountabilityStatus,
-  clearAccountabilityCircleProfile,
-  createDefaultAccountabilityCircleProfile,
-  getAccountabilityCircleProfile,
-  getAccountabilityWeekWindow,
-  parsePartnerNames,
-  saveAccountabilityCircleProfile,
-  syncAccountabilityCircleProfileToSupabase,
-} from '../lib/accountability';
 import {
   DailyReminderSettings,
   NotificationPermissionState,
@@ -57,34 +44,6 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
 }
 
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + 'T12:00:00');
-  d.setDate(d.getDate() + days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function getDateForDay(startDate: string, dayNumber: number): string {
-  return addDays(startDate, Math.max(1, dayNumber) - 1);
-}
-
-function buildLocalWeeklyStatus(profile: AccountabilityCircleProfile): WeeklyAccountabilityStatus {
-  const appState = getAppState();
-  const referenceDate = getDateForDay(appState.startDate, appState.currentDay);
-  const weekWindow = getAccountabilityWeekWindow(referenceDate);
-  const logs = weekWindow.dates
-    .map((date) => getDailyLog(date))
-    .filter((log): log is DailyLog => Boolean(log));
-
-  return buildWeeklyAccountabilityStatus({
-    profile,
-    logs,
-    referenceDate,
-  });
-}
-
 export default function SettingsScreen() {
   const { user, signOut } = useAuth();
   const [state, setState] = useState<AppState | null>(null);
@@ -95,29 +54,17 @@ export default function SettingsScreen() {
   const [recovering, setRecovering] = useState(false);
   const [name, setName] = useState('');
   const [userFocus, setUserFocus] = useState<UserFocus>('balanced');
-  const [accountabilityProfile, setAccountabilityProfile] = useState<AccountabilityCircleProfile>(createDefaultAccountabilityCircleProfile());
-  const [partnerInput, setPartnerInput] = useState('');
-  const [accountabilityStatus, setAccountabilityStatus] = useState<WeeklyAccountabilityStatus | null>(null);
   const [dailyReminder, setDailyReminder] = useState<DailyReminderSettings>(createDefaultDailyReminderSettings());
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>('unsupported');
   const [toast, setToast] = useState('');
   const reminderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reminderSettingsRef = useRef(dailyReminder);
-  const accountabilityCloudSyncActive = Boolean(user);
-  const accountabilityStorageBadge = accountabilityCloudSyncActive ? 'Cloud sync on' : 'Local only';
-  const accountabilityStorageCopy = accountabilityCloudSyncActive
-    ? 'Saved locally first, then synced to Supabase when online.'
-    : 'Stored on this device only.';
   reminderSettingsRef.current = dailyReminder;
 
   useEffect(() => {
     setState(getAppState());
     setUserFocus(getUserFocus());
     setDataHealth(getLocalDataHealthSnapshot());
-    const profile = getAccountabilityCircleProfile();
-    setAccountabilityProfile(profile);
-    setPartnerInput(profile.partnerNames.join(', '));
-    setAccountabilityStatus(buildLocalWeeklyStatus(profile));
     // Auto-populate name from Google account if available and no local name saved
     const savedName = localStorage.getItem('iron75_user_name') ?? '';
     if (!savedName && user) {
@@ -218,51 +165,6 @@ export default function SettingsScreen() {
     setTimeout(() => setToast(''), 2000);
   };
 
-  const handleSaveAccountability = () => {
-    const saved = saveAccountabilityCircleProfile({
-      ...accountabilityProfile,
-      partnerNames: parsePartnerNames(partnerInput),
-    });
-    setAccountabilityProfile(saved);
-    setPartnerInput(saved.partnerNames.join(', '));
-    setAccountabilityStatus(buildLocalWeeklyStatus(saved));
-    void syncAccountabilityCircleProfileToSupabase(saved);
-    setToast(accountabilityCloudSyncActive ? 'Accountability profile saved. Syncing to cloud…' : 'Accountability profile saved locally.');
-    setTimeout(() => setToast(''), 2500);
-  };
-
-  const handleToggleAccountability = (enabled: boolean) => {
-    const saved = saveAccountabilityCircleProfile({
-      ...accountabilityProfile,
-      enabled,
-      partnerNames: parsePartnerNames(partnerInput),
-    });
-    setAccountabilityProfile(saved);
-    setPartnerInput(saved.partnerNames.join(', '));
-    setAccountabilityStatus(buildLocalWeeklyStatus(saved));
-    void syncAccountabilityCircleProfileToSupabase(saved);
-    setToast(
-      accountabilityCloudSyncActive
-        ? `Accountability mode ${enabled ? 'enabled' : 'disabled'}. Syncing to cloud…`
-        : `Accountability mode ${enabled ? 'enabled' : 'disabled'} (local only).`
-    );
-    setTimeout(() => setToast(''), 2500);
-  };
-
-  const handleClearAccountability = () => {
-    clearAccountabilityCircleProfile();
-    const resetProfile = createDefaultAccountabilityCircleProfile();
-    setAccountabilityProfile(resetProfile);
-    setPartnerInput('');
-    setAccountabilityStatus(buildLocalWeeklyStatus(resetProfile));
-    setToast(
-      accountabilityCloudSyncActive
-        ? 'Accountability profile cleared on this device. Cloud copy is unchanged.'
-        : 'Accountability profile cleared on this device.'
-    );
-    setTimeout(() => setToast(''), 2500);
-  };
-
   // Save name on unmount (in case user navigates away without blur)
   const nameRef = useRef(name);
   nameRef.current = name;
@@ -305,9 +207,6 @@ export default function SettingsScreen() {
       await deleteAllData();
       setState(null);
       setName('');
-      setAccountabilityProfile(createDefaultAccountabilityCircleProfile());
-      setPartnerInput('');
-      setAccountabilityStatus(null);
       setShowConfirmDelete(false);
       setToast('All data deleted permanently. 🗑️');
       setTimeout(() => {
@@ -492,144 +391,6 @@ export default function SettingsScreen() {
             </div>
           </div>
         </div>
-      </motion.div>
-
-      {/* Accountability section */}
-      <motion.div
-        className="rounded-2xl p-5"
-        style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.13 }}
-      >
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="font-bold text-sm text-gray-300 uppercase tracking-wide">Accountability (Opt-in)</h2>
-          <span
-            className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
-            style={{ background: 'rgba(0,245,212,0.1)', border: '1px solid rgba(0,245,212,0.3)', color: '#00F5D4' }}
-          >
-            {accountabilityStorageBadge}
-          </span>
-        </div>
-        <p className="text-xs text-gray-500 mb-3">
-          Private motivation support for your small circle. No public feed, no ranking, no shame mechanics. {accountabilityStorageCopy}
-        </p>
-
-        <div
-          className="rounded-xl p-3 flex items-center justify-between"
-          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          <div>
-            <p className="text-sm text-gray-300">Accountability mode</p>
-            <p className="text-xs text-gray-500">Enable when you want shared weekly check-ins.</p>
-          </div>
-          <button
-            onClick={() => handleToggleAccountability(!accountabilityProfile.enabled)}
-            className="px-3 py-1.5 rounded-full text-xs font-bold transition-all"
-            style={{
-              background: accountabilityProfile.enabled ? 'rgba(0,245,212,0.15)' : 'rgba(255,255,255,0.06)',
-              border: `1px solid ${accountabilityProfile.enabled ? 'rgba(0,245,212,0.45)' : 'rgba(255,255,255,0.1)'}`,
-              color: accountabilityProfile.enabled ? '#00F5D4' : '#94A3B8',
-            }}
-          >
-            {accountabilityProfile.enabled ? 'Enabled' : 'Disabled'}
-          </button>
-        </div>
-
-        <div className="grid gap-2 mt-3">
-          <input
-            type="text"
-            value={accountabilityProfile.teamLabel}
-            onChange={(e) => setAccountabilityProfile((prev) => ({ ...prev, teamLabel: e.target.value }))}
-            placeholder="Team label (optional): e.g. Morning Squad"
-            className="px-3 py-2 rounded-lg text-sm"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0' }}
-          />
-          <input
-            type="text"
-            value={partnerInput}
-            onChange={(e) => setPartnerInput(e.target.value)}
-            placeholder="Partner names (comma separated): Asha, Liam"
-            className="px-3 py-2 rounded-lg text-sm"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0' }}
-          />
-          <input
-            type="text"
-            value={accountabilityProfile.weeklyGoal.title}
-            onChange={(e) =>
-              setAccountabilityProfile((prev) => ({
-                ...prev,
-                weeklyGoal: {
-                  ...prev.weeklyGoal,
-                  title: e.target.value,
-                },
-              }))
-            }
-            placeholder="Shared weekly goal"
-            className="px-3 py-2 rounded-lg text-sm"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0' }}
-          />
-          <div
-            className="rounded-lg px-3 py-2 flex items-center justify-between"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            <p className="text-xs text-gray-400">Workout target (1-7 days/week)</p>
-            <input
-              type="number"
-              min={1}
-              max={7}
-              value={accountabilityProfile.weeklyGoal.targetWorkoutDays}
-              onChange={(e) => {
-                const parsed = Number.parseInt(e.target.value, 10);
-                setAccountabilityProfile((prev) => ({
-                  ...prev,
-                  weeklyGoal: {
-                    ...prev.weeklyGoal,
-                    targetWorkoutDays: Number.isFinite(parsed)
-                      ? Math.min(7, Math.max(1, parsed))
-                      : prev.weeklyGoal.targetWorkoutDays,
-                  },
-                }));
-              }}
-              className="w-16 px-2 py-1 rounded-md text-sm text-center"
-              style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', color: '#e2e8f0' }}
-            />
-          </div>
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={handleSaveAccountability}
-            className="py-2.5 rounded-xl text-xs font-bold"
-            style={{ background: 'rgba(0,245,212,0.1)', border: '1px solid rgba(0,245,212,0.3)', color: '#00F5D4' }}
-          >
-            💾 Save Circle
-          </motion.button>
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={handleClearAccountability}
-            className="py-2.5 rounded-xl text-xs font-bold"
-            style={{ background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35' }}
-          >
-            🧹 Clear Local Data
-          </motion.button>
-        </div>
-
-        {accountabilityStatus && (
-          <div
-            className="mt-3 rounded-xl p-3"
-            style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            <p className="text-xs text-gray-500">
-              This week ({accountabilityStatus.weekStart} → {accountabilityStatus.weekEnd})
-            </p>
-            <p className="text-sm font-semibold mt-1" style={{ color: '#e2e8f0' }}>
-              {accountabilityStatus.workoutDays}/{accountabilityStatus.targetWorkoutDays} workout days · {accountabilityStatus.checkInDays}/7 check-ins
-            </p>
-            <p className="text-xs text-gray-500 mt-1">{accountabilityStatus.encouragement}</p>
-          </div>
-        )}
       </motion.div>
 
       {/* Stats section */}

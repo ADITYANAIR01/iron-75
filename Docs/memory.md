@@ -208,11 +208,8 @@ Implemented reminder feature:
 - Browser Notification API permission states (`granted`/`denied`/`default`/unsupported) are handled explicitly.
 - Settings exposes enable/save/test flows with safe fallback messaging when notifications are blocked.
 
-### 6.9 Accountability Domain
-Shared check-ins are now local-first plus cloud mirrored:
-- Local profile is stored in `iron75_accountability_circle_profile`.
-- Authenticated users sync profile data through `app_state.default_session_overrides.accountability_profile`.
-- Merge policy prefers non-empty data, then newer `updatedAt` when both local and cloud contain values.
+### 6.9 Accountability Domain (Removed)
+The accountability circle feature and its local/cloud sync path have been removed from the codebase.
 
 ## 7) Data Contracts
 ### 7.1 Core Types
@@ -279,9 +276,8 @@ Profile and AI cache keys:
 - `iron75_ai_quote_failed_date`
 - `iron75_coach_<challengeId>_<YYYY-MM-DD>`
 
-Reminder and accountability keys:
+Reminder keys:
 - `iron75_daily_reminder_settings`
-- `iron75_accountability_circle_profile`
 
 Sync queue:
 - `iron75_pending_sync`
@@ -343,7 +339,6 @@ App state mapping:
 | custom sessions JSON | `app_state.custom_sessions` |
 | day assignments JSON | `app_state.day_assignments` |
 | default overrides JSON | `app_state.default_session_overrides` |
-| accountability profile JSON | `app_state.default_session_overrides.accountability_profile` |
 
 Daily log mapping:
 
@@ -392,7 +387,6 @@ Workout mapping:
 
 `default_session_overrides` JSONB:
 - object keyed by default session key (`pushA`, `pullA`, etc.) with array values of custom exercise objects
-- also includes `accountability_profile` object for shared check-ins sync metadata
 
 `wrapped_shown_weeks` JSONB:
 - array of numeric week numbers, for example `[1,2,3]`
@@ -439,10 +433,6 @@ Custom workouts:
 - local-empty/cloud-nonempty -> pull cloud.
 - local-nonempty/cloud-empty -> push local.
 - both populated -> keep local edits.
-
-Accountability profile:
-- serialized under `app_state.default_session_overrides.accountability_profile`.
-- merged local-first with timestamp tie-break (`updatedAt`).
 
 ### 8.4 Offline Guarantees
 - Main UX is local storage backed.
@@ -853,7 +843,7 @@ Settings tab:
 
 ## 14) Verification Matrix
 Automated:
-- Current suite covers streak logic, notifications, accountability, progression logic, adaptive coaching, telemetry, and workout progression helpers.
+- Current suite covers streak logic, notifications, progression logic, adaptive coaching, telemetry, and workout progression helpers.
 - Highest remaining gap is screen-level and integration coverage for sync and auth-heavy flows.
 
 Manual test scenarios:
@@ -887,8 +877,8 @@ Current observed status on 2026-03-25:
 - production build passes
 
 Stress rerun snapshot on 2026-04-12:
-- `npm run test -- --reporter=verbose` passed (`55/55` tests, `9/9` files).
-- Runtime hotspots were `workoutProgression.test.ts` (~36ms), `adaptiveCoaching.test.ts` (~30ms), and `accountability.test.ts` (~21ms); no failure hotspots observed.
+- `npm run test -- --reporter=verbose` passed (`45/45` tests, `8/8` files).
+- Runtime hotspots were `workoutProgression.test.ts` (~30ms), `adaptiveCoaching.test.ts` (~27ms), and `notifications.test.ts` (~14ms); no failure hotspots observed.
 - Temporary stress artifact used during rerun was cleaned up (no retained stress artifact files in repo notes).
 
 ### 15.1 Deployment Runbook

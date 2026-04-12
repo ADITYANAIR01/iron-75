@@ -23,7 +23,7 @@ const OFFLINE_TIPS: Record<ChallengeId, string[]> = {
     "Recovery patterns matter more than workout patterns in Weeks 3-5. If soreness is consistently 4+/5, you're in a catabolic state. Add 8+ hours sleep and bump protein — you'll see gains accelerate, not stall. 🧠",
     "Morning-logged days consistently outperform evening-logged days by 25%. If you're not opening the app until night, your discipline is reactive. Shift to proactive. Check in at 7 AM. 📊",
     "Walk completion is the most underrated data point. People who skip walks report 2x more mood dips. The outdoor element isn't arbitrary — it's the mental reset that keeps everything else running. 🌿",
-    "Diet logging behavior is a leading indicator. When people stop logging meals, gym performance drops within 3 days — not because nutrition changed, but because accountability did. Log everything. 📝",
+    "Diet logging behavior is a leading indicator. When people stop logging meals, gym performance drops within 3 days — not because nutrition changed, but because consistency did. Log everything. 📝",
     "Energy score trend is your early warning system. Three consecutive days below 3/5 signals overtraining or under-recovery. Don't push harder; recover smarter. Deload is a strategy, not a failure. ⚡",
   ],
   motivation: [

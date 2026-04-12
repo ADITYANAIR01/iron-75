@@ -15,7 +15,7 @@ As of 2026-04-12, this project is in a working state:
 - Automated tests passed.
 - Production build passed.
 - App is already deployed and accessible from the public URL in the main README.
-- Latest stress rerun also passed (`55/55` tests across `9/9` files), with no failure hotspots.
+- Latest stress rerun also passed (`45/45` tests across `8/8` files), with no failure hotspots.
 
 Practical meaning: this is now a valid baseline for feature integration, not a rescue state.
 
@@ -26,7 +26,6 @@ Practical meaning: this is now a valid baseline for feature integration, not a r
 - Weekly wrapped summaries.
 - AI coach actions through a server proxy.
 - Browser notification reminders in Settings (permission-aware, local schedule + test trigger).
-- Accountability shared check-ins with local-first persistence and cloud mirror for authenticated users.
 - Water tracking has been removed from product behavior and UI.
 - Dual mode challenge system:
   - Workout mode (freeze-based tolerance for misses).
@@ -138,7 +137,7 @@ Still worth future design polish:
 - AI uses a server proxy, not direct client key exposure.
 
 ## 9) Testing and quality snapshot
-- Automated tests now cover streak logic, notifications, accountability, progression logic, adaptive coaching, telemetry, custom workouts, and workout progression helpers.
+- Automated tests now cover streak logic, notifications, progression logic, adaptive coaching, telemetry, custom workouts, and workout progression helpers.
 - Build and typecheck succeed in the current state.
 - There is no lint script configured in package scripts.
 - Dependency audit output currently reports high-severity items (not yet remediated in this pass).

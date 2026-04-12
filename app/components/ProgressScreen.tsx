@@ -17,14 +17,6 @@ import {
   Legend,
 } from 'recharts';
 import { DailyLog } from '../lib/types';
-import { getDailyLog, getAppState } from '../lib/storage';
-import {
-  WeeklyAccountabilityStatus,
-  buildWeeklyAccountabilityStatus,
-  getAccountabilityCircleProfile,
-  getAccountabilityWeekWindow,
-} from '../lib/accountability';
-import { useAuth } from './AuthProvider';
 
 interface DayStatus {
   day: number;
@@ -42,6 +34,9 @@ type ChartRow = {
   soreness: number;
   tasks: number;
 };
+
+type PhotoEntry = { date: string; urls: string[]; day: number };
+type DailyLogGetter = (date: string) => DailyLog | null;
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T12:00:00');
@@ -83,7 +78,7 @@ function moodValue(mood: string): number {
   return MAP[mood] ?? 0;
 }
 
-function buildDayStatuses(startDate: string, currentDay: number, windowDays: number): DayStatus[] {
+function buildDayStatuses(startDate: string, currentDay: number, windowDays: number, getDailyLogByDate: DailyLogGetter): DayStatus[] {
   const days: DayStatus[] = [];
   const startDay = Math.max(1, currentDay - windowDays + 1);
   for (let i = 0; i < windowDays; i++) {
@@ -94,7 +89,7 @@ function buildDayStatuses(startDate: string, currentDay: number, windowDays: num
       continue;
     }
     const isToday = dayNum === currentDay;
-    const log = getDailyLog(date);
+    const log = getDailyLogByDate(date);
     if (log) {
       const tasks = countTasks(log);
       days.push({
@@ -109,6 +104,22 @@ function buildDayStatuses(startDate: string, currentDay: number, windowDays: num
     }
   }
   return days;
+}
+
+function buildPhotoEntries(startDate: string, currentDay: number, windowDays: number, getDailyLogByDate: DailyLogGetter): PhotoEntry[] {
+  const allDays: PhotoEntry[] = [];
+  const startDay = Math.max(1, currentDay - windowDays + 1);
+
+  for (let dayNum = startDay; dayNum <= currentDay; dayNum++) {
+    const date = getDateForDay(startDate, dayNum);
+    const log = getDailyLogByDate(date);
+    const urls = log?.progressPhotos?.length
+      ? log.progressPhotos
+      : log?.progressPhotoUrl ? [log.progressPhotoUrl] : [];
+    if (urls.length > 0) allDays.push({ date, urls, day: dayNum });
+  }
+
+  return allDays;
 }
 
 function buildChartData(days: DayStatus[]): ChartRow[] {
@@ -318,13 +329,12 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 }
 
 export default function ProgressScreen() {
-  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'photos' | 'charts'>('overview');
   const [heatmapView, setHeatmapView] = useState<'grid' | 'rings'>('grid');
   const [windowDays, setWindowDays] = useState<(typeof WINDOW_OPTIONS)[number]>(75);
   const [days, setDays] = useState<DayStatus[]>([]);
   const [chartData, setChartData] = useState<ChartRow[]>([]);
-  const [accountabilityStatus, setAccountabilityStatus] = useState<WeeklyAccountabilityStatus | null>(null);
+  const [photoEntries, setPhotoEntries] = useState<PhotoEntry[]>([]);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -333,22 +343,36 @@ export default function ProgressScreen() {
 
   useEffect(() => {
     if (!mounted) return;
-    const appSt = getAppState();
-    const startDate = appSt.startDate;
-    const currentDay = appSt.currentDay;
-    const d = buildDayStatuses(startDate, currentDay, windowDays);
-    setDays(d);
-    setChartData(buildChartData(d));
-    const referenceDate = getDateForDay(startDate, currentDay);
-    const weekWindow = getAccountabilityWeekWindow(referenceDate);
-    const weeklyLogs = weekWindow.dates
-      .map((date) => getDailyLog(date))
-      .filter((log): log is DailyLog => Boolean(log));
-    setAccountabilityStatus(buildWeeklyAccountabilityStatus({
-      profile: getAccountabilityCircleProfile(),
-      logs: weeklyLogs,
-      referenceDate,
-    }));
+    let cancelled = false;
+
+    const loadProgressData = async () => {
+      try {
+        const storage = await import('../lib/storage');
+        if (cancelled) return;
+
+        const appSt = storage.getAppState();
+        const startDate = appSt.startDate;
+        const currentDay = appSt.currentDay;
+        const getDailyLogByDate: DailyLogGetter = (date) => storage.getDailyLog(date);
+
+        const nextDays = buildDayStatuses(startDate, currentDay, windowDays, getDailyLogByDate);
+        setDays(nextDays);
+        setChartData(buildChartData(nextDays));
+        setPhotoEntries(buildPhotoEntries(startDate, currentDay, windowDays, getDailyLogByDate));
+      } catch (error) {
+        console.warn('Progress data load failed:', error);
+        if (cancelled) return;
+        setDays([]);
+        setChartData([]);
+        setPhotoEntries([]);
+      }
+    };
+
+    void loadProgressData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [mounted, windowDays]);
 
   const TABS = ['overview', 'photos', 'charts'] as const;
@@ -363,6 +387,13 @@ export default function ProgressScreen() {
   const futureCount = days.filter((d) => d.status === 'future').length;
   const xAxisInterval = windowDays >= 300 ? 29 : windowDays >= 150 ? 14 : windowDays >= 75 ? 9 : 0;
   const heatmapColumns = windowDays >= 300 ? 15 : windowDays >= 150 ? 13 : 11;
+  const totalPhotos = photoEntries.reduce((sum, entry) => sum + entry.urls.length, 0);
+  const MAX_PHOTO_CELLS = 120;
+  const flatPhotos = photoEntries.flatMap((entry) => entry.urls.map((url, idx) => ({ entry, url, idx })));
+  const visiblePhotos =
+    flatPhotos.length > MAX_PHOTO_CELLS
+      ? flatPhotos.slice(flatPhotos.length - MAX_PHOTO_CELLS)
+      : flatPhotos;
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
@@ -414,99 +445,6 @@ export default function ProgressScreen() {
           );
         })}
       </div>
-
-      {accountabilityStatus && (
-        <div
-          className="rounded-2xl p-4"
-          style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-bold text-white">🤝 Weekly Accountability</h3>
-            <div className="flex items-center gap-1.5">
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-                style={{
-                  background: accountabilityStatus.enabled ? 'rgba(0,245,212,0.14)' : 'rgba(255,255,255,0.06)',
-                  border: `1px solid ${accountabilityStatus.enabled ? 'rgba(0,245,212,0.35)' : 'rgba(255,255,255,0.1)'}`,
-                  color: accountabilityStatus.enabled ? '#00F5D4' : '#94A3B8',
-                }}
-              >
-                {accountabilityStatus.enabled ? 'Mode on' : 'Mode off'}
-              </span>
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-                style={{
-                  background: user ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.06)',
-                  border: `1px solid ${user ? 'rgba(56,189,248,0.35)' : 'rgba(255,255,255,0.1)'}`,
-                  color: user ? '#38BDF8' : '#94A3B8',
-                }}
-              >
-                {user ? 'Cloud sync' : 'Local only'}
-              </span>
-            </div>
-          </div>
-
-          <p className="text-xs text-gray-500 mt-1">
-            Week {accountabilityStatus.weekStart} → {accountabilityStatus.weekEnd}
-          </p>
-          {accountabilityStatus.teamLabel && (
-            <p className="text-xs mt-1" style={{ color: '#cbd5e1' }}>
-              Team: {accountabilityStatus.teamLabel}
-            </p>
-          )}
-
-          {accountabilityStatus.enabled ? (
-            <>
-              <p className="text-sm mt-2" style={{ color: '#e2e8f0' }}>
-                Goal: {accountabilityStatus.goalTitle}
-              </p>
-              <div className="grid grid-cols-3 gap-2 mt-3">
-                {[
-                  {
-                    label: 'Workouts',
-                    value: `${accountabilityStatus.workoutDays}/${accountabilityStatus.targetWorkoutDays}`,
-                    color: '#00F5D4',
-                  },
-                  {
-                    label: 'Check-ins',
-                    value: `${accountabilityStatus.checkInDays}/7`,
-                    color: '#A855F7',
-                  },
-                  {
-                    label: 'Remaining',
-                    value: accountabilityStatus.workoutsRemaining,
-                    color: '#FF6B35',
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="rounded-xl p-2.5 text-center"
-                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-                  >
-                    <div className="text-lg font-black" style={{ color: item.color }}>
-                      {item.value}
-                    </div>
-                    <div className="text-[10px] text-gray-500">{item.label}</div>
-                  </div>
-                ))}
-              </div>
-              {accountabilityStatus.partnerNames.length > 0 && (
-                <p className="text-xs text-gray-500 mt-2">
-                  Circle: {accountabilityStatus.partnerNames.join(', ')}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="text-xs text-gray-500 mt-2">
-              Accountability mode is currently off. You can enable it in Settings anytime.
-            </p>
-          )}
-
-          <p className="text-xs mt-2" style={{ color: '#94A3B8' }}>
-            {accountabilityStatus.encouragement}
-          </p>
-        </div>
-      )}
 
       {/* Tab content */}
       <AnimatePresence mode="wait">
@@ -652,116 +590,86 @@ export default function ProgressScreen() {
             exit={{ opacity: 0, y: -16 }}
             className="flex flex-col gap-4"
           >
-            {(() => {
-              type PhotoEntry = { date: string; urls: string[]; day: number };
-              const allDays: PhotoEntry[] = [];
-              const appSt = getAppState();
-              const startDate = appSt.startDate;
-              const currentDay = appSt.currentDay;
-              const startDay = Math.max(1, currentDay - windowDays + 1);
-              for (let dayNum = startDay; dayNum <= currentDay; dayNum++) {
-                const date = getDateForDay(startDate, dayNum);
-                const log = getDailyLog(date);
-                const urls = log?.progressPhotos?.length
-                  ? log.progressPhotos
-                  : log?.progressPhotoUrl ? [log.progressPhotoUrl] : [];
-                if (urls.length > 0) allDays.push({ date, urls, day: dayNum });
-              }
-              const totalPhotos = allDays.reduce((s, d) => s + d.urls.length, 0);
-              const MAX_PHOTO_CELLS = 120;
-              const flatPhotos = allDays.flatMap((entry) =>
-                entry.urls.map((url, idx) => ({ entry, url, idx }))
-              );
-              const visiblePhotos =
-                flatPhotos.length > MAX_PHOTO_CELLS
-                  ? flatPhotos.slice(flatPhotos.length - MAX_PHOTO_CELLS)
-                  : flatPhotos;
+            {photoEntries.length === 0 ? (
+              <div className="rounded-2xl p-8 text-center" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="text-5xl mb-3">📸</div>
+                <p className="text-sm font-bold text-white mb-1">No photos yet</p>
+                <p className="text-xs" style={{ color: '#64748b' }}>
+                  Upload up to 4 daily progress photos from the Today tab.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-2xl p-4" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <p className="text-sm font-bold text-white mb-1">{totalPhotos} Progress Photos</p>
+                  <p className="text-xs text-gray-500">Across {photoEntries.length} days in the selected window</p>
+                  {flatPhotos.length > MAX_PHOTO_CELLS && (
+                    <p className="mt-1 text-[10px] text-gray-500">Showing latest {MAX_PHOTO_CELLS} photos for faster loading.</p>
+                  )}
+                </div>
 
-              if (allDays.length === 0) {
-                return (
-                  <div className="rounded-2xl p-8 text-center" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div className="text-5xl mb-3">📸</div>
-                    <p className="text-sm font-bold text-white mb-1">No photos yet</p>
-                    <p className="text-xs" style={{ color: '#64748b' }}>
-                      Upload up to 4 daily progress photos from the Today tab.
-                    </p>
-                  </div>
-                );
-              }
-
-              return (
-                <>
-                  <div className="rounded-2xl p-4" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <p className="text-sm font-bold text-white mb-1">{totalPhotos} Progress Photos</p>
-                    <p className="text-xs text-gray-500">Across {allDays.length} days in the selected window</p>
-                    {flatPhotos.length > MAX_PHOTO_CELLS && (
-                      <p className="mt-1 text-[10px] text-gray-500">Showing latest {MAX_PHOTO_CELLS} photos for faster loading.</p>
-                    )}
-                  </div>
-
-                  {/* Before / After comparison */}
-                  {allDays.length >= 2 && (
-                    <div className="rounded-2xl p-4" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(0,245,212,0.15)' }}>
-                      <p className="text-xs uppercase tracking-widest font-bold mb-3" style={{ color: '#00F5D4' }}>Before &amp; After</p>
-                      <div className="flex gap-3">
-                        {/* First day photo */}
-                        <div className="flex-1 relative rounded-xl overflow-hidden aspect-[3/4]"
-                          style={{ border: '1px solid rgba(255,107,53,0.4)' }}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={allDays[0].urls[0]} alt="Before" className="w-full h-full object-cover" />
-                          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold"
-                            style={{ background: 'rgba(0,0,0,0.7)', color: '#FF6B35' }}>
-                            Day {allDays[0].day}
-                          </div>
-                          <div className="absolute bottom-0 inset-x-0 py-1 text-center text-xs font-bold"
-                            style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}>
-                            Before
-                          </div>
+                {/* Before / After comparison */}
+                {photoEntries.length >= 2 && (
+                  <div className="rounded-2xl p-4" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(0,245,212,0.15)' }}>
+                    <p className="text-xs uppercase tracking-widest font-bold mb-3" style={{ color: '#00F5D4' }}>Before &amp; After</p>
+                    <div className="flex gap-3">
+                      {/* First day photo */}
+                      <div className="flex-1 relative rounded-xl overflow-hidden aspect-[3/4]"
+                        style={{ border: '1px solid rgba(255,107,53,0.4)' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={photoEntries[0].urls[0]} alt="Before" className="w-full h-full object-cover" />
+                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          style={{ background: 'rgba(0,0,0,0.7)', color: '#FF6B35' }}>
+                          Day {photoEntries[0].day}
                         </div>
-                        {/* Latest day photo */}
-                        <div className="flex-1 relative rounded-xl overflow-hidden aspect-[3/4]"
-                          style={{ border: '1px solid rgba(0,245,212,0.4)' }}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={allDays[allDays.length - 1].urls[0]} alt="After" className="w-full h-full object-cover" />
-                          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold"
-                            style={{ background: 'rgba(0,0,0,0.7)', color: '#00F5D4' }}>
-                            Day {allDays[allDays.length - 1].day}
-                          </div>
-                          <div className="absolute bottom-0 inset-x-0 py-1 text-center text-xs font-bold"
-                            style={{ background: 'rgba(0,0,0,0.6)', color: '#00F5D4' }}>
-                            After
-                          </div>
+                        <div className="absolute bottom-0 inset-x-0 py-1 text-center text-xs font-bold"
+                          style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}>
+                          Before
+                        </div>
+                      </div>
+                      {/* Latest day photo */}
+                      <div className="flex-1 relative rounded-xl overflow-hidden aspect-[3/4]"
+                        style={{ border: '1px solid rgba(0,245,212,0.4)' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={photoEntries[photoEntries.length - 1].urls[0]} alt="After" className="w-full h-full object-cover" />
+                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          style={{ background: 'rgba(0,0,0,0.7)', color: '#00F5D4' }}>
+                          Day {photoEntries[photoEntries.length - 1].day}
+                        </div>
+                        <div className="absolute bottom-0 inset-x-0 py-1 text-center text-xs font-bold"
+                          style={{ background: 'rgba(0,0,0,0.6)', color: '#00F5D4' }}>
+                          After
                         </div>
                       </div>
                     </div>
-                  )}
-
-                  {/* All photos grid */}
-                  <div className="grid grid-cols-3 gap-2">
-                    {visiblePhotos.map(({ entry, url, idx }) => (
-                      <motion.div
-                        key={`${entry.date}-${idx}`}
-                        className="relative rounded-xl overflow-hidden aspect-[3/4]"
-                        style={{ border: '1px solid rgba(255,255,255,0.06)' }}
-                        whileHover={{ scale: 1.03 }}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`Day ${entry.day} #${idx + 1}`} className="w-full h-full object-cover" />
-                        <div
-                          className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center text-xs font-bold"
-                          style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}
-                        >
-                          Day {entry.day}
-                          {entry.urls.length > 1 ? ` · #${idx + 1}` : ''}
-                        </div>
-                      </motion.div>
-                    ))}
                   </div>
-                </>
-              );
-            })()}
+                )}
+
+                {/* All photos grid */}
+                <div className="grid grid-cols-3 gap-2">
+                  {visiblePhotos.map(({ entry, url, idx }) => (
+                    <motion.div
+                      key={`${entry.date}-${idx}`}
+                      className="relative rounded-xl overflow-hidden aspect-[3/4]"
+                      style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+                      whileHover={{ scale: 1.03 }}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt={`Day ${entry.day} #${idx + 1}`} className="w-full h-full object-cover" />
+                      <div
+                        className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center text-xs font-bold"
+                        style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}
+                      >
+                        Day {entry.day}
+                        {entry.urls.length > 1 ? ` · #${idx + 1}` : ''}
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </>
+            )}
           </motion.div>
         )}
 

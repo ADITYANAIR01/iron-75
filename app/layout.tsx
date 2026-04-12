@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,6 +25,8 @@ export const viewport: Viewport = {
   themeColor: '#06060F',
 };
 
+const shouldRegisterServiceWorker = process.env.NODE_ENV === 'production';
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -36,12 +39,23 @@ export default function RootLayout({
         style={{ background: '#06060F', color: '#E2E8F0' }}
       >
         {children}
-        {/* Register SW inline — minimal JS, no extra bundle */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js',{scope:'/'})})}`
-          }}
-        />
+        {shouldRegisterServiceWorker ? (
+          <Script
+            id="sw-register"
+            strategy="afterInteractive"
+            dangerouslySetInnerHTML={{
+              __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js',{scope:'/'})})}`,
+            }}
+          />
+        ) : (
+          <Script
+            id="sw-dev-cleanup"
+            strategy="beforeInteractive"
+            dangerouslySetInnerHTML={{
+              __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.getRegistrations().then((registrations)=>{registrations.forEach((registration)=>registration.unregister())});if('caches'in window){caches.keys().then((keys)=>Promise.all(keys.map((key)=>caches.delete(key))))}})}`,
+            }}
+          />
+        )}
       </body>
     </html>
   );

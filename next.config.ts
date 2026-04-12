@@ -33,8 +33,8 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Aggressive caching for static assets
-        source: '/(.*)\\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)',
+        // Aggressive caching for versioned public assets.
+        source: '/(.*)\\.(png|jpg|jpeg|gif|ico|svg|woff|woff2|webp)',
         headers: [
           { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
         ],

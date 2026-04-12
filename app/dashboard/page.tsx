@@ -7,6 +7,35 @@ import { TabId } from '../lib/types';
 import { AuthProvider, useAuth } from '../components/AuthProvider';
 import { syncFromSupabase, getAppState, isWrappedShown, markWrappedShown as markWrappedShownStorage, localDateString } from '../lib/storage';
 
+const STALE_BUNDLE_RELOAD_KEY = 'iron75_stale_bundle_reload_once';
+
+function recoverFromStaleBundle(error: unknown): Promise<never> {
+  if (typeof window !== 'undefined') {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    const isStaleBundleError = /module factory is not available|ChunkLoadError|Loading chunk [^ ]+ failed|Failed to fetch dynamically imported module/i.test(message);
+
+    if (isStaleBundleError && sessionStorage.getItem(STALE_BUNDLE_RELOAD_KEY) !== '1') {
+      sessionStorage.setItem(STALE_BUNDLE_RELOAD_KEY, '1');
+
+      const clearCaches = 'caches' in window
+        ? caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+        : Promise.resolve();
+      const clearWorkers = 'serviceWorker' in navigator
+        ? navigator.serviceWorker.getRegistrations().then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+        : Promise.resolve();
+
+      void Promise.allSettled([clearCaches, clearWorkers]).finally(() => {
+        window.location.reload();
+      });
+
+      // Keep suspense pending while the forced reload happens.
+      return new Promise<never>(() => {});
+    }
+  }
+
+  return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+}
+
 const LoginScreen = dynamic(() => import('../components/LoginScreen'), { ssr: false });
 const TodayScreen = dynamic(() => import('../components/TodayScreen'), {
   ssr: false,
@@ -17,7 +46,10 @@ const TodayScreen = dynamic(() => import('../components/TodayScreen'), {
   ),
 });
 const WorkoutScreen = dynamic(() => import('../components/WorkoutScreen'), { ssr: false });
-const ProgressScreen = dynamic(() => import('../components/ProgressScreen'), { ssr: false });
+const ProgressScreen = dynamic(
+  () => import('../components/ProgressScreen').catch((error) => recoverFromStaleBundle(error)),
+  { ssr: false }
+);
 const AICoachScreen = dynamic(() => import('../components/AICoachScreen'), { ssr: false });
 const SettingsScreen = dynamic(() => import('../components/SettingsScreen'), { ssr: false });
 const WeeklyWrapped = dynamic(() => import('../components/WeeklyWrapped'), { ssr: false });
