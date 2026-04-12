@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
-import { createClient } from '../lib/supabase';
+import { createClient, getSupabaseConfigError } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
@@ -19,11 +19,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-  const supabaseRef = useRef(createClient());
+  const [configError] = useState<string | null>(() => getSupabaseConfigError());
+  const [loading, setLoading] = useState(configError === null);
+  const hasLoggedConfigError = useRef(false);
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+  if (!supabaseRef.current && !configError) {
+    supabaseRef.current = createClient();
+  }
   const supabase = supabaseRef.current;
+  const authUnavailableError =
+    configError ??
+    'Supabase auth is unavailable. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local and restart the app.';
 
   useEffect(() => {
+    if (!supabase) {
+      if (configError && !hasLoggedConfigError.current) {
+        console.warn(configError);
+        hasLoggedConfigError.current = true;
+      }
+      setLoading(false);
+      return;
+    }
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -41,18 +58,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [supabase.auth]);
+  }, [configError, supabase]);
 
   const signInWithEmail = useCallback(
     async (email: string, password: string) => {
+      if (!supabase) return { error: authUnavailableError };
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       return { error: error?.message ?? null };
     },
-    [supabase.auth]
+    [authUnavailableError, supabase]
   );
 
   const signUpWithEmail = useCallback(
     async (email: string, password: string) => {
+      if (!supabase) return { error: authUnavailableError };
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -60,20 +79,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       return { error: error?.message ?? null };
     },
-    [supabase.auth]
+    [authUnavailableError, supabase]
   );
 
   const signInWithGoogle = useCallback(async () => {
+    if (!supabase) return { error: authUnavailableError };
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
     return { error: error?.message ?? null };
-  }, [supabase.auth]);
+  }, [authUnavailableError, supabase]);
 
   const signOut = useCallback(async () => {
+    if (!supabase) return;
     await supabase.auth.signOut();
-  }, [supabase.auth]);
+  }, [supabase]);
 
   return (
     <AuthContext.Provider

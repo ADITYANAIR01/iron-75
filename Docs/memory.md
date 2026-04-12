@@ -1,6 +1,6 @@
 # IRON75 Memory Document
 
-Last audited: 2026-03-25
+Last audited: 2026-04-12
 Repository root: `C:\CODES\iron-75`
 
 ## 1) Purpose Of This File
@@ -112,12 +112,12 @@ Session flow:
 - `AuthProvider` loads initial session, subscribes to auth state changes.
 - `/auth/callback` exchanges OAuth code to session and redirects.
 - `/dashboard` gate checks `useAuth()`, falls back to login UI if unauthenticated.
+- Supabase client init now fails fast if required env vars are missing (no placeholder fallback credentials).
 
 ### 6.2 Daily Challenge Domain
-Daily tasks counted toward completion (6 tasks total):
+Tracked daily habits (5 total):
 - Gym workout done
 - Outdoor walk done
-- Water goal reached (`>= 3.8L`)
 - Diet logged (at least one meal slot non-empty)
 - Mood selected
 - Reading completed
@@ -133,8 +133,8 @@ App mode values:
 Workout mode:
 - Missed day consumes a freeze first.
 - If freezes are 0, missed day resets streak/day and increments restart counter.
-- Freeze count bounded 0..5.
-- Weekly reward: +1 freeze every 7 streak days, max 5.
+- Freeze count is non-negative (no legacy cap at 5).
+- Milestone reward: +2 freezes at streak 10/20/40/60.
 
 75hard mode:
 - No freeze protection.
@@ -142,7 +142,7 @@ Workout mode:
 
 Mode switching rules in dashboard:
 - Entering 75hard requires streak >= 10.
-- Returning to workout restores freeze count to at least 3.
+- Returning to workout preserves current freeze count (no auto-refill exploit).
 
 ### 6.4 Workout Domain
 Default sessions:
@@ -173,7 +173,7 @@ Visual outputs:
 - Ring mode showing per-day task completion ratio.
 - Stats cards (complete, failed, remaining).
 - Photo timeline and before/after.
-- Trend charts (mood, energy/motivation/soreness, water, tasks).
+- Trend charts (mood, energy/motivation/soreness, tasks).
 
 ### 6.6 Weekly Wrapped Domain
 Triggered at:
@@ -202,6 +202,18 @@ Response behavior:
 - Caches coach responses per day in local storage.
 - Daily quote cache handled separately in `aiTips.ts`.
 
+### 6.8 Notifications Domain
+Implemented reminder feature:
+- Daily reminder settings are saved locally (`iron75_daily_reminder_settings`).
+- Browser Notification API permission states (`granted`/`denied`/`default`/unsupported) are handled explicitly.
+- Settings exposes enable/save/test flows with safe fallback messaging when notifications are blocked.
+
+### 6.9 Accountability Domain
+Shared check-ins are now local-first plus cloud mirrored:
+- Local profile is stored in `iron75_accountability_circle_profile`.
+- Authenticated users sync profile data through `app_state.default_session_overrides.accountability_profile`.
+- Merge policy prefers non-empty data, then newer `updatedAt` when both local and cloud contain values.
+
 ## 7) Data Contracts
 ### 7.1 Core Types
 `AppState`:
@@ -217,8 +229,6 @@ Response behavior:
 - `date: string`
 - `gymWorkoutDone: boolean`
 - `outdoorWalkDone: boolean`
-- `waterLiters: number`
-- `waterGoalMet: boolean`
 - `readingDone: boolean`
 - `readingBook: string`
 - `dietSlots: { breakfast, lunch, dinner, snacks }`
@@ -268,6 +278,10 @@ Profile and AI cache keys:
 - `iron75_ai_quote_date`
 - `iron75_ai_quote_failed_date`
 - `iron75_coach_<challengeId>_<YYYY-MM-DD>`
+
+Reminder and accountability keys:
+- `iron75_daily_reminder_settings`
+- `iron75_accountability_circle_profile`
 
 Sync queue:
 - `iron75_pending_sync`
@@ -329,6 +343,7 @@ App state mapping:
 | custom sessions JSON | `app_state.custom_sessions` |
 | day assignments JSON | `app_state.day_assignments` |
 | default overrides JSON | `app_state.default_session_overrides` |
+| accountability profile JSON | `app_state.default_session_overrides.accountability_profile` |
 
 Daily log mapping:
 
@@ -337,8 +352,6 @@ Daily log mapping:
 | `date` | `daily_logs.date` |
 | `gymWorkoutDone` | `daily_logs.gym_workout_done` |
 | `outdoorWalkDone` | `daily_logs.outdoor_walk_done` |
-| `waterLiters` | `daily_logs.water_liters` |
-| `waterGoalMet` | `daily_logs.water_goal_met` |
 | `readingDone` | `daily_logs.reading_done` |
 | `readingBook` | `daily_logs.reading_book` |
 | `dietSlots` | `daily_logs.diet_slots` |
@@ -378,16 +391,15 @@ Workout mapping:
 - value is either default session key or custom session id
 
 `default_session_overrides` JSONB:
-- object keyed by default session key (`pushA`, `pullA`, etc.)
-- value is array of custom exercise objects
+- object keyed by default session key (`pushA`, `pullA`, etc.) with array values of custom exercise objects
+- also includes `accountability_profile` object for shared check-ins sync metadata
 
 `wrapped_shown_weeks` JSONB:
 - array of numeric week numbers, for example `[1,2,3]`
 
 ### 7.7 Database Setup Notes For Rebuild
 Use SQL from:
-- `Docs/supabase-setup.md`
-- `Docs/supabase-migration-mode.sql`
+- `Docs/supabase.sql`
 
 Minimum build-time checklist:
 1. Create four core tables.
@@ -396,7 +408,7 @@ Minimum build-time checklist:
 4. Create CRUD policies per table.
 5. Create storage bucket and storage RLS policies.
 6. Create `handle_new_user` trigger.
-7. Run mode migration for legacy instances.
+7. If needed, rerun `Docs/supabase.sql` for a fully fresh environment.
 
 ## 8) Sync Architecture (Local First + Cloud Mirror)
 ### 8.1 Write Path
@@ -427,6 +439,10 @@ Custom workouts:
 - local-empty/cloud-nonempty -> pull cloud.
 - local-nonempty/cloud-empty -> push local.
 - both populated -> keep local edits.
+
+Accountability profile:
+- serialized under `app_state.default_session_overrides.accountability_profile`.
+- merged local-first with timestamp tie-break (`updatedAt`).
 
 ### 8.4 Offline Guarantees
 - Main UX is local storage backed.
@@ -471,13 +487,7 @@ function initializeStreakOnLoad():
 
 ## 9) Business Rules You Must Preserve
 ### 9.1 Daily Completion Rule
-`allTasksComplete` is true only if:
-- gymWorkoutDone
-- outdoorWalkDone
-- waterLiters >= 3.8
-- at least one diet slot has content
-- mood selected
-- readingDone
+`allTasksComplete` is true when `gymWorkoutDone` is true (workout-only streak rule).
 
 ### 9.2 Streak Initialization Rule
 On app load:
@@ -486,7 +496,7 @@ On app load:
 - Apply mode-specific penalty/recovery behavior.
 
 ### 9.3 Celebration Rule
-When `allTasksComplete` flips true first time for day:
+When `gymWorkoutDone` flips true first time for day:
 - trigger celebration overlay
 - call `completeTodayStreak()`
 - set `celebrationShown = true`
@@ -591,6 +601,7 @@ Optional but required for AI features:
 - `GEMINI_API_KEY`
 
 Deploy all variables in hosting environment (not only local files).
+Missing Supabase env now throws explicit configuration errors; placeholders are no longer used.
 
 ## 13) Rebuild Blueprint (From Scratch)
 This section is the actual build plan.
@@ -662,11 +673,11 @@ Gate:
 Deliverables:
 - initialize-on-load missed-day evaluator.
 - mode-specific penalties.
-- freeze increments every 7 streak days (workout mode only).
+- freeze milestone rewards (+2 at streak 10/20/40/60) in workout mode.
 - goal countdown target behavior.
 
 Gate:
-- Unit tests for missed day, freeze usage, strict mode reset, freeze cap.
+- Unit tests for missed day, freeze usage, strict mode reset, and milestone rewards.
 
 ### Phase 7: Today Screen
 Deliverables:
@@ -768,7 +779,7 @@ Today tab:
 4. Task cards:
 5. gym toggle
 6. walk toggle
-7. water card with +0.5L increments and goal marker
+7. no water card (water tracking removed)
 8. diet logging fields
 9. mood selection + three sliders
 10. reading status + book title
@@ -811,7 +822,7 @@ Progress tab:
 9. Charts mode:
 10. mood trend line
 11. energy/motivation/soreness multi-line chart
-12. water bar chart with 3.8L reference
+12. tasks-per-day bar chart with 5-habit reference
 13. tasks-per-day bar chart with color bands
 
 AI Coach tab:
@@ -842,8 +853,8 @@ Settings tab:
 
 ## 14) Verification Matrix
 Automated:
-- Existing test suite covers streak logic only (`app/lib/streakLogic.test.ts`).
-- Add tests for sync merge, task completion function, workout auto-complete, and mode toggle constraints.
+- Current suite covers streak logic, notifications, accountability, progression logic, adaptive coaching, telemetry, and workout progression helpers.
+- Highest remaining gap is screen-level and integration coverage for sync and auth-heavy flows.
 
 Manual test scenarios:
 1. Signup/login/logout flow with both email and OAuth.
@@ -875,6 +886,11 @@ Current observed status on 2026-03-25:
 - typecheck passes
 - production build passes
 
+Stress rerun snapshot on 2026-04-12:
+- `npm run test -- --reporter=verbose` passed (`55/55` tests, `9/9` files).
+- Runtime hotspots were `workoutProgression.test.ts` (~36ms), `adaptiveCoaching.test.ts` (~30ms), and `accountability.test.ts` (~21ms); no failure hotspots observed.
+- Temporary stress artifact used during rerun was cleaned up (no retained stress artifact files in repo notes).
+
 ### 15.1 Deployment Runbook
 Local:
 1. Copy `.env.local.example` to `.env.local`.
@@ -899,17 +915,17 @@ Production:
 
 ### 15.2 Migrations For Existing Instances
 If upgrading an older database:
-1. run `Docs/supabase-migration-mode.sql` to add `mode` and `freeze_count`.
-2. run custom workout/wrapped migration SQL from `Docs/supabase-setup.md` section 12.
-3. verify columns exist before deploying UI that depends on them.
+1. use `Docs/supabase.sql` for a clean rebuild path.
+2. if preserving data, manually apply only the specific SQL blocks from `Docs/supabase-setup.md` migration sections.
+3. verify columns/constraints exist before deploying UI that depends on them.
 
 ## 16) Known Technical Risks And Improvement Backlog
-1. Test coverage is narrow (mostly streak logic).
+1. Unit coverage is broader now, but screen-level/integration coverage is still thin.
 2. In-memory server rate limiter is process-local (not distributed).
 3. Base64 photo fallback can increase local storage pressure.
 4. Some UI text and markdown files show encoding artifacts; standardize UTF-8.
 5. Sync conflict policy is timestamp-only, without field-level merge.
-6. Default fallback Supabase URL/key placeholders can hide env misconfiguration during local dev.
+6. Supabase config now fails fast when env vars are missing; onboarding breaks hard until env is correctly set (intentional hardening).
 7. No analytics/telemetry means limited production observability (intentional privacy tradeoff).
 
 ## 17) Non-Negotiables For Any Rebuild

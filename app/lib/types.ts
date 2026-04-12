@@ -12,8 +12,6 @@ export interface DailyLog {
   date: string; // YYYY-MM-DD
   gymWorkoutDone: boolean;
   outdoorWalkDone: boolean;
-  waterLiters: number;
-  waterGoalMet: boolean;
   readingDone: boolean;
   readingBook: string;
   dietSlots: DietSlots;
@@ -29,16 +27,28 @@ export interface DailyLog {
   updatedAt?: string; // ISO timestamp for sync conflict resolution
 }
 
-export type AppMode = 'workout' | '75hard';
-
 export interface AppState {
   streak: number;
   currentDay: number;
   startDate: string; // YYYY-MM-DD ISO
   longestStreak: number;
   totalRestarts: number;
-  mode: AppMode;
-  freezeCount: number; // only consumed/shown in workout mode
+}
+
+export type UserFocus = 'habit_first' | 'gym_first' | 'balanced';
+
+export type ProgressionSource = 'workout' | 'walk' | 'diet' | 'mood' | 'reading' | 'mission_path';
+
+export interface ProgressionDailyState {
+  date: string; // YYYY-MM-DD
+  xpGained: number;
+  claimedSources: ProgressionSource[];
+}
+
+export interface ProgressionState {
+  totalXp: number;
+  level: number;
+  daily: ProgressionDailyState;
 }
 
 export interface SetState {
@@ -52,6 +62,6 @@ export interface ExerciseState {
   expanded: boolean;
 }
 
-export type TabId = 'today' | 'workout' | 'progress' | 'ai' | 'roadmap' | 'settings';
+export type TabId = 'today' | 'workout' | 'progress' | 'ai' | 'settings';
 
 export type ChallengeId = 'tip' | 'pattern' | 'motivation' | 'recovery' | 'nutrition';

@@ -23,7 +23,7 @@ const featureCards = [
   {
     title: 'Workout Intelligence',
     description:
-      'Follow structured PPL sessions, log reps quickly, and keep progression data organized day after day.',
+      'Run your own custom workout routine, log sets quickly, and keep progression data organized day after day.',
     tag: 'Training',
   },
   {
@@ -37,13 +37,13 @@ const featureCards = [
 const processSteps = [
   {
     step: '01',
-    title: 'Set your start day',
-    text: 'Pick your challenge date and establish the baseline for hydration, movement, and mindset.',
+    title: 'Set your routine',
+    text: 'Start tracking your workouts and daily habits with a clean baseline.',
   },
   {
     step: '02',
     title: 'Execute daily',
-    text: 'Complete the hard rules, check them off, and keep your streak unbroken with visible accountability.',
+    text: 'Log what you finish, check off habits quickly, and keep your streak visible.',
   },
   {
     step: '03',
@@ -74,14 +74,14 @@ export default function LandingPage() {
       <header className="relative z-10">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6 md:px-10">
           <Link href="/" className="landing-reveal flex items-center gap-3" style={{ animationDelay: '80ms' }}>
-            <Image src="/logo.png" alt="Iron75" width={42} height={42} className="h-10 w-auto" priority />
+            <Image src="/logo.png" alt="GrindOs" width={42} height={42} className="h-10 w-auto" priority />
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Iron75</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">GrindOs</p>
               <p
                 className="-mt-1 text-3xl uppercase leading-none text-slate-900"
                 style={{ fontFamily: 'var(--font-heading)' }}
               >
-                Do hard things to achive a solid body
+                Habit tracker + gym logger
               </p>
             </div>
           </Link>
@@ -103,20 +103,20 @@ export default function LandingPage() {
               className="landing-reveal inline-flex rounded-full border border-slate-900/25 bg-white/60 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-slate-700"
               style={{ animationDelay: '220ms' }}
             >
-              75-day discipline protocol
+              Habit + gym consistency system
             </p>
 
             <h1
               className="landing-reveal max-w-2xl text-[3.1rem] uppercase leading-[0.88] text-slate-900 sm:text-[4.2rem] md:text-[5.5rem]"
               style={{ fontFamily: 'var(--font-heading)', animationDelay: '300ms' }}
             >
-              Train discipline.
-              <span className="block text-[#f95738]">Build an unshakable routine.</span>
+              Build consistency.
+              <span className="block text-[#f95738]">Track habits and training in one place.</span>
             </h1>
 
             <p className="landing-reveal max-w-xl text-base leading-relaxed text-slate-700 md:text-lg" style={{ animationDelay: '380ms' }}>
-              IRON75 helps you execute the hard rules every day, log progress instantly, and maintain momentum
-              even when motivation drops. Designed for serious consistency, not casual tracking.
+              GrindOs is a simple system for daily habit check-ins, gym logging, and long-term trend visibility.
+              Stay consistent without overcomplicating your routine.
             </p>
 
             <div className="landing-reveal flex flex-wrap gap-3" style={{ animationDelay: '460ms' }}>
@@ -124,7 +124,7 @@ export default function LandingPage() {
                 href="/dashboard"
                 className="rounded-full bg-slate-900 px-6 py-3 text-sm font-semibold text-[#fff8ef] transition hover:-translate-y-0.5 hover:bg-slate-800"
               >
-                Start the Challenge
+                Start Tracking
               </Link>
               <Link
                 href="#how"
@@ -137,11 +137,11 @@ export default function LandingPage() {
             <div className="landing-reveal grid max-w-xl gap-3 sm:grid-cols-3" style={{ animationDelay: '520ms' }}>
               <div className="rounded-2xl border border-slate-900/15 bg-white/70 p-4">
                 <p className="text-xs uppercase tracking-wider text-slate-500">Daily tasks</p>
-                <p className="mt-1 text-2xl font-extrabold text-slate-900">6/6</p>
+                <p className="mt-1 text-2xl font-extrabold text-slate-900">5 tracked</p>
               </div>
               <div className="rounded-2xl border border-slate-900/15 bg-white/70 p-4">
-                <p className="text-xs uppercase tracking-wider text-slate-500">Challenge length</p>
-                <p className="mt-1 text-2xl font-extrabold text-slate-900">75 days</p>
+                <p className="text-xs uppercase tracking-wider text-slate-500">Workout setup</p>
+                <p className="mt-1 text-2xl font-extrabold text-slate-900">Custom</p>
               </div>
               <div className="rounded-2xl border border-slate-900/15 bg-white/70 p-4">
                 <p className="text-xs uppercase tracking-wider text-slate-500">Weekly recap</p>
@@ -162,12 +162,12 @@ export default function LandingPage() {
 
               <div className="mt-7 space-y-3">
                 {[
-                  'Read 10 pages',
-                  'Follow strict nutrition plan',
-                  '45-minute workout (indoor)',
-                  '45-minute workout (outdoor)',
-                  'Drink 1 gallon of water',
-                  'Progress photo complete',
+                  'Gym session logged',
+                  'Outdoor walk or activity',
+                  'Reading habit complete',
+                  'Diet diary updated',
+                  'Mood + energy check-in',
+                  'Progress photos uploaded',
                 ].map((item, index) => (
                   <div
                     key={item}
@@ -185,7 +185,7 @@ export default function LandingPage() {
 
               <div className="mt-7 rounded-2xl border border-[#5eead4]/30 bg-[#0f766e]/15 p-4">
                 <p className="text-xs uppercase tracking-wider text-[#99f6e4]">AI coach note</p>
-                <p className="mt-2 text-sm text-[#ccfbf1]">Energy dipped after lunch. Move your outdoor session to 5:30 PM and hydrate before it.</p>
+                <p className="mt-2 text-sm text-[#ccfbf1]">Energy dipped after lunch. Move your outdoor session to 5:30 PM and front-load carbs before it.</p>
               </div>
             </div>
           </aside>
@@ -224,7 +224,7 @@ export default function LandingPage() {
               className="mt-3 text-[2.5rem] uppercase leading-none text-slate-900"
               style={{ fontFamily: 'var(--font-heading)' }}
             >
-              Simple system. Hard execution.
+              Simple tracking. Clear momentum.
             </h3>
             <div className="mt-6 space-y-4">
               {processSteps.map((item, index) => (
@@ -257,7 +257,7 @@ export default function LandingPage() {
             </ul>
             <div className="mt-6 rounded-2xl border border-[#facc15]/35 bg-[#facc15]/10 p-4">
               <p className="text-sm text-[#fef08a]">
-                "I stopped negotiating with myself. The checklist made consistency obvious and measurable."
+                "I stopped guessing. GrindOs made my routine measurable and easy to follow every day."
               </p>
               <p className="mt-2 text-xs uppercase tracking-wide text-[#fde68a]">Rohan, Day 56</p>
             </div>
@@ -271,14 +271,14 @@ export default function LandingPage() {
               className="mx-auto mt-3 max-w-3xl text-[2.6rem] uppercase leading-none text-slate-900 md:text-[4rem]"
               style={{ fontFamily: 'var(--font-heading)' }}
             >
-              Enter day one with a system that will not blink.
+              Start with a system built for long-term consistency.
             </h2>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
               <Link
                 href="/login"
                 className="rounded-full bg-[#f95738] px-7 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[#ed4626]"
               >
-                Launch Iron75
+                Launch GrindOs
               </Link>
               <Link
                 href="/dashboard"
@@ -292,7 +292,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="relative z-10 border-t border-slate-900/10 bg-white/45 px-6 py-5 text-center text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 md:px-10">
-        Iron75 | Discipline over mood
+        GrindOs | Discipline over mood
       </footer>
     </div>
   );

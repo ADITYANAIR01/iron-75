@@ -4,9 +4,10 @@
 // asynchronously (fire-and-forget). Reads always come from localStorage first,
 // with a background sync-down on app load via syncFromSupabase().
 
-import { DailyLog, AppState, AppMode, MoodEmoji, ExerciseState } from './types';
+import { DailyLog, AppState, MoodEmoji, ExerciseState, UserFocus } from './types';
 import { createClient } from './supabase';
 import { syncCustomWorkoutsFromSupabase } from './customWorkouts';
+import { syncAccountabilityCircleProfileWithCloudOverrides } from './accountability';
 
 // ── Key helpers ───────────────────────────────────────────────────────────────
 const KEYS = {
@@ -60,13 +61,47 @@ async function getSupabaseUserId(): Promise<string | null> {
   }
 }
 
+type SupabaseErrorLike = { message?: string; code?: string } | null | undefined;
+
+function isRlsPolicyError(error: SupabaseErrorLike): boolean {
+  if (!error) return false;
+  return error.code === '42501' || (error.message ?? '').toLowerCase().includes('row-level security policy');
+}
+
+function logRlsBlockedWrite(scope: string, message?: string): void {
+  console.warn(
+    `Supabase ${scope} write blocked by RLS. Apply the latest policies from Docs/supabase.sql.${message ? ` (${message})` : ''}`
+  );
+}
+
 // ── Pending-sync queue — retries failed fire-and-forget writes ──────────────
 const PENDING_SYNC_KEY = 'iron75_pending_sync';
+const ACTIVE_USER_KEY = 'iron75_active_user_id';
 
 interface PendingSyncEntry {
   type: 'app_state' | 'daily_log' | 'workout_state';
   /** For daily_log entries this is the log date; for app_state it's "app_state"; for workout_state it's "date_sessionKey". */
   key: string;
+}
+
+function removeAllTrackerKeys(): void {
+  if (typeof window === 'undefined') return;
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('iron75_')) keysToRemove.push(key);
+  }
+  keysToRemove.forEach((key) => localStorage.removeItem(key));
+}
+
+function ensureActiveUserContext(userId: string): void {
+  if (typeof window === 'undefined') return;
+  const activeUserId = localStorage.getItem(ACTIVE_USER_KEY);
+  if (activeUserId && activeUserId !== userId) {
+    // Prevent cross-account leakage: stale local data must never sync into another account.
+    removeAllTrackerKeys();
+  }
+  localStorage.setItem(ACTIVE_USER_KEY, userId);
 }
 
 function getPendingSyncQueue(): PendingSyncEntry[] {
@@ -137,18 +172,12 @@ function defaultAppState(): AppState {
     startDate: getToday(),
     longestStreak: 0,
     totalRestarts: 0,
-    mode: 'workout',
-    freezeCount: 3,
   };
 }
 
 function toInt(raw: string | null, fallback: number): number {
   const n = Number.parseInt(raw ?? '', 10);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function normalizeMode(raw: string | null): AppMode {
-  return raw === '75hard' || raw === 'workout' ? raw : 'workout';
 }
 
 function clamp(n: number, min: number, max: number): number {
@@ -158,11 +187,9 @@ function clamp(n: number, min: number, max: number): number {
 export function getAppState(): AppState {
   if (typeof window === 'undefined') return defaultAppState();
   const streak = Math.max(0, toInt(localStorage.getItem(KEYS.STREAK), 0));
-  const currentDay = clamp(toInt(localStorage.getItem(KEYS.DAY), 1), 1, 75);
+  const currentDay = clamp(toInt(localStorage.getItem(KEYS.DAY), 1), 1, 99999);
   const longestStreak = Math.max(0, toInt(localStorage.getItem(KEYS.LONGEST_STREAK), 0));
   const totalRestarts = Math.max(0, toInt(localStorage.getItem(KEYS.TOTAL_RESTARTS), 0));
-  const mode = normalizeMode(localStorage.getItem(KEYS.MODE));
-  const freezeCount = clamp(toInt(localStorage.getItem(KEYS.FREEZE_COUNT), 3), 0, 5);
 
   return {
     streak,
@@ -170,8 +197,6 @@ export function getAppState(): AppState {
     startDate: localStorage.getItem(KEYS.START_DATE) ?? getToday(),
     longestStreak,
     totalRestarts,
-    mode,
-    freezeCount,
   };
 }
 
@@ -184,8 +209,9 @@ export function saveAppState(state: AppState): void {
   localStorage.setItem(KEYS.START_DATE, state.startDate);
   localStorage.setItem(KEYS.LONGEST_STREAK, String(state.longestStreak));
   localStorage.setItem(KEYS.TOTAL_RESTARTS, String(state.totalRestarts));
-  localStorage.setItem(KEYS.MODE, state.mode);
-  localStorage.setItem(KEYS.FREEZE_COUNT, String(state.freezeCount));
+  // Keep legacy keys stable for backward compatibility with older client caches.
+  localStorage.setItem(KEYS.MODE, 'workout');
+  localStorage.setItem(KEYS.FREEZE_COUNT, '0');
   localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, now);
   // 2. Mirror to Supabase (fire-and-forget)
   syncAppStateToSupabase(state, now);
@@ -207,13 +233,18 @@ async function syncAppStateToSupabase(state: AppState, updatedAt?: string): Prom
         start_date: state.startDate,
         longest_streak: state.longestStreak,
         total_restarts: state.totalRestarts,
-        mode: state.mode,
-        freeze_count: state.freezeCount,
+        mode: 'workout',
+        freeze_count: 0,
         updated_at: updatedAt ?? new Date().toISOString(),
       },
       { onConflict: 'user_id' }
     );
     if (error) {
+      if (isRlsPolicyError(error)) {
+        logRlsBlockedWrite('app_state', error.message);
+        removeFromPendingSync({ type: 'app_state', key: 'app_state' });
+        return;
+      }
       console.warn('Supabase app_state upsert error:', error.message);
       addToPendingSync({ type: 'app_state', key: 'app_state' });
     } else {
@@ -231,8 +262,6 @@ function createDefaultDailyLog(date: string): DailyLog {
     date,
     gymWorkoutDone: false,
     outdoorWalkDone: false,
-    waterLiters: 0,
-    waterGoalMet: false,
     readingDone: false,
     readingBook: '',
     dietSlots: { breakfast: '', lunch: '', dinner: '', snacks: '' },
@@ -284,8 +313,6 @@ async function syncDailyLogToSupabase(log: DailyLog, updatedAt?: string): Promis
         date: log.date,
         gym_workout_done: log.gymWorkoutDone,
         outdoor_walk_done: log.outdoorWalkDone,
-        water_liters: log.waterLiters,
-        water_goal_met: log.waterGoalMet,
         reading_done: log.readingDone,
         reading_book: log.readingBook,
         diet_slots: log.dietSlots,
@@ -303,6 +330,11 @@ async function syncDailyLogToSupabase(log: DailyLog, updatedAt?: string): Promis
       { onConflict: 'user_id,date' }
     );
     if (error) {
+      if (isRlsPolicyError(error)) {
+        logRlsBlockedWrite('daily_logs', error.message);
+        removeFromPendingSync({ type: 'daily_log', key: log.date });
+        return;
+      }
       console.warn('Supabase daily_log upsert error:', error.message);
       addToPendingSync({ type: 'daily_log', key: log.date });
     } else {
@@ -324,22 +356,18 @@ export function getOrCreateTodayLog(): DailyLog {
   return fresh;
 }
 
-// ── Task completion check ─────────────────────────────────────────────────────
+// ── Streak completion check ───────────────────────────────────────────────────
 export function checkAllTasksComplete(log: DailyLog): boolean {
-  const dietFilled =
-    log.dietSlots.breakfast.trim() !== '' ||
-    log.dietSlots.lunch.trim() !== '' ||
-    log.dietSlots.dinner.trim() !== '' ||
-    log.dietSlots.snacks.trim() !== '';
+  // Streak completion is workout-only by product rule.
+  return log.gymWorkoutDone;
+}
 
-  return (
-    log.gymWorkoutDone &&
-    log.outdoorWalkDone &&
-    log.waterLiters >= 3.8 &&
-    dietFilled &&
-    log.moodEmoji !== '' &&
-    log.readingDone
-  );
+export function isDietFullyLogged(dietSlots: DailyLog['dietSlots']): boolean {
+  return Object.values(dietSlots).every((meal) => meal.trim() !== '');
+}
+
+export function isStreakDayComplete(log: DailyLog | null | undefined): boolean {
+  return !!log?.gymWorkoutDone;
 }
 
 // ── Weekly Wrapped shown tracking ───────────────────────────────────────────
@@ -453,19 +481,41 @@ async function syncWorkoutToSupabase(
       updated_at: ts,
     };
 
-    let error;
-    if (existing && existing.length > 0) {
-      ({ error } = await supabase
-        .from('workout_sessions')
-        .update({ exercises, completed, updated_at: ts })
-        .eq('id', existing[0].id));
-    } else {
-      ({ error } = await supabase
-        .from('workout_sessions')
-        .insert(payload));
+    const { error: upsertError } = await supabase
+      .from('workout_sessions')
+      .upsert(payload, { onConflict: 'user_id,date,session_type' });
+
+    let error = upsertError;
+    if (upsertError) {
+      // Backward compatibility for databases that do not yet have the unique
+      // (user_id, date, session_type) constraint required by ON CONFLICT.
+      const upsertMessage = upsertError.message.toLowerCase();
+      const missingConstraint =
+        upsertMessage.includes('on conflict') &&
+        (upsertMessage.includes('no unique') || upsertMessage.includes('no unique or exclusion constraint'));
+
+      if (missingConstraint) {
+        if (existing && existing.length > 0) {
+          ({ error } = await supabase
+            .from('workout_sessions')
+            .update({ exercises, completed, day_of_week: dayOfWeek, updated_at: ts })
+            .eq('user_id', userId)
+            .eq('date', date)
+            .eq('session_type', sessionKey));
+        } else {
+          ({ error } = await supabase
+            .from('workout_sessions')
+            .insert(payload));
+        }
+      }
     }
 
     if (error) {
+      if (isRlsPolicyError(error)) {
+        logRlsBlockedWrite('workout_sessions', error.message);
+        removeFromPendingSync({ type: 'workout_state', key: pendingKey });
+        return;
+      }
       console.warn('Supabase workout_sessions upsert error:', error.message);
       addToPendingSync({ type: 'workout_state', key: pendingKey });
     } else {
@@ -481,6 +531,7 @@ export async function syncFromSupabase(): Promise<void> {
   try {
     const userId = await getSupabaseUserId();
     if (!userId) return;
+    ensureActiveUserContext(userId);
     const supabase = createClient();
 
     // Flush any writes that failed on previous sessions first
@@ -512,8 +563,7 @@ export async function syncFromSupabase(): Promise<void> {
         localStorage.setItem(KEYS.START_DATE, stateRow.start_date);
         localStorage.setItem(KEYS.LONGEST_STREAK, String(stateRow.longest_streak));
         localStorage.setItem(KEYS.TOTAL_RESTARTS, String(stateRow.total_restarts));
-        if (stateRow.mode) localStorage.setItem(KEYS.MODE, stateRow.mode);
-        if (stateRow.freeze_count != null) localStorage.setItem(KEYS.FREEZE_COUNT, String(stateRow.freeze_count));
+        // Legacy mode/freeze fields are intentionally ignored.
         localStorage.setItem(KEYS.APP_STATE_UPDATED_AT, cloudTs || new Date().toISOString());
         // Pull wrapped_shown_weeks from cloud
         if (stateRow.wrapped_shown_weeks) {
@@ -529,6 +579,8 @@ export async function syncFromSupabase(): Promise<void> {
       const localState = getAppState();
       syncAppStateToSupabase(localState, localAppStateUpdatedAt);
     }
+
+    await syncAccountabilityCircleProfileWithCloudOverrides(stateRow?.default_session_overrides ?? null);
 
     // Sync daily_logs — compare per-date timestamps, keep newer version per day
     const { data: cloudLogs } = await supabase
@@ -575,8 +627,6 @@ export async function syncFromSupabase(): Promise<void> {
             date: row.date,
             gymWorkoutDone: row.gym_workout_done,
             outdoorWalkDone: row.outdoor_walk_done,
-            waterLiters: row.water_liters,
-            waterGoalMet: row.water_goal_met,
             readingDone: row.reading_done,
             readingBook: row.reading_book ?? '',
             dietSlots: row.diet_slots ?? { breakfast: '', lunch: '', dinner: '', snacks: '' },
@@ -586,7 +636,7 @@ export async function syncFromSupabase(): Promise<void> {
             sorenessLevel: row.soreness_level ?? 3,
             progressPhotoUrl: row.progress_photo_url ?? '',
             progressPhotos: Array.isArray(row.progress_photos) ? row.progress_photos : [],
-            allTasksComplete: row.all_tasks_complete,
+            allTasksComplete: !!row.gym_workout_done,
             celebrationShown: row.celebration_shown,
             aiInsightShown: row.ai_insight_shown ?? '',
             updatedAt: cloudTs || new Date().toISOString(),
@@ -810,6 +860,22 @@ export async function saveProfileName(name: string): Promise<void> {
   );
 }
 
+const USER_FOCUS_KEY = 'iron75_user_focus';
+
+export function getUserFocus(): UserFocus {
+  if (typeof window === 'undefined') return 'balanced';
+  const raw = localStorage.getItem(USER_FOCUS_KEY);
+  if (raw === 'habit_first' || raw === 'gym_first' || raw === 'balanced') {
+    return raw;
+  }
+  return 'balanced';
+}
+
+export function saveUserFocus(focus: UserFocus): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(USER_FOCUS_KEY, focus);
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -853,7 +919,6 @@ export function generateExportHTML(): string {
       <td>${escapeHtml(l.date)}</td>
       <td>${l.gymWorkoutDone ? '✅' : '❌'}</td>
       <td>${l.outdoorWalkDone ? '✅' : '❌'}</td>
-      <td>${l.waterLiters.toFixed(1)}L</td>
       <td>${l.readingDone ? '✅' : '❌'}</td>
       <td>${escapeHtml(l.moodEmoji || '—')}</td>
       <td>${l.energyLevel}/5</td>
@@ -872,7 +937,7 @@ export function generateExportHTML(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Iron75 Data Export — ${escapeHtml(userName || 'User')}</title>
+  <title>GrindOs Data Export — ${escapeHtml(userName || 'User')}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a1a; color: #e2e8f0; padding: 2rem; }
@@ -892,10 +957,10 @@ export function generateExportHTML(): string {
   </style>
 </head>
 <body>
-  <h1>🔥 IRON75 Data Export</h1>
+  <h1>🔥 GrindOs Data Export</h1>
   <p class="meta">${userName ? `Athlete: <strong>${escapeHtml(userName)}</strong> · ` : ''}Generated: ${escapeHtml(dateGenerated)}</p>
 
-  <h2>📊 Challenge Overview</h2>
+  <h2>📊 Tracker Overview</h2>
   <div class="stats">
     <div class="stat-card"><div class="stat-value">${appState.currentDay}</div><div class="stat-label">Current Day</div></div>
     <div class="stat-card"><div class="stat-value">${appState.streak} 🔥</div><div class="stat-label">Current Streak</div></div>
@@ -903,7 +968,7 @@ export function generateExportHTML(): string {
     <div class="stat-card"><div class="stat-value">${appState.totalRestarts}</div><div class="stat-label">Total Restarts</div></div>
     <div class="stat-card"><div class="stat-value">${appState.startDate}</div><div class="stat-label">Start Date</div></div>
     <div class="stat-card"><div class="stat-value">${logs.length}</div><div class="stat-label">Days Logged</div></div>
-    <div class="stat-card"><div class="stat-value">${logs.filter(l => l.allTasksComplete).length}</div><div class="stat-label">Perfect Days</div></div>
+    <div class="stat-card"><div class="stat-value">${logs.filter(l => l.gymWorkoutDone).length}</div><div class="stat-label">Workout Days</div></div>
   </div>
 
   <h2>📅 Daily Logs (${logs.length} days)</h2>
@@ -911,16 +976,16 @@ export function generateExportHTML(): string {
     <table>
       <thead>
         <tr>
-          <th>Date</th><th>Gym</th><th>Walk</th><th>Water</th><th>Read</th><th>Mood</th>
+          <th>Date</th><th>Gym</th><th>Walk</th><th>Read</th><th>Mood</th>
           <th>Energy</th><th>Motiv.</th><th>Sore.</th><th>Breakfast</th><th>Lunch</th>
-          <th>Dinner</th><th>Snacks</th><th>Complete</th>
+          <th>Dinner</th><th>Snacks</th><th>Workout Complete</th>
         </tr>
       </thead>
       <tbody>${logRows}</tbody>
     </table>
   </div>
 
-  <div class="footer">Iron75 Challenge Tracker · Exported from app</div>
+  <div class="footer">GrindOs Habit Tracker · Exported from app</div>
 </body>
 </html>`;
 }
@@ -942,7 +1007,7 @@ export async function recoverStreakFromLogs(): Promise<AppState | null> {
 
     const { data: rows, error } = await supabase
       .from('daily_logs')
-      .select('date, all_tasks_complete')
+      .select('date, gym_workout_done')
       .eq('user_id', userId)
       .order('date', { ascending: true });
 
@@ -950,9 +1015,9 @@ export async function recoverStreakFromLogs(): Promise<AppState | null> {
 
     const today = getToday();
 
-    // Build a set of dates where tasks were complete
+    // Build a set of dates where the streak-driving workout was complete.
     const completedSet = new Set<string>(
-      rows.filter((r) => r.all_tasks_complete).map((r) => r.date as string)
+      rows.filter((r) => r.gym_workout_done).map((r) => r.date as string)
     );
 
     // Walk backwards from yesterday to find the streak end point
@@ -989,7 +1054,7 @@ export async function recoverStreakFromLogs(): Promise<AppState | null> {
     const recovered: AppState = {
       ...currentState,
       streak: streakCount,
-      currentDay: Math.min(streakCount + 1, 75),
+      currentDay: streakCount + 1,
       startDate: streakStart,
       longestStreak: Math.max(currentState.longestStreak, streakCount),
     };
@@ -1002,15 +1067,12 @@ export async function recoverStreakFromLogs(): Promise<AppState | null> {
   }
 }
 
-/** Keys that must never be wiped, no matter what reset is triggered. */
-const PROTECTED_KEYS = new Set(['iron75_user_name']);
-
 /**
- * Resets the challenge to Day 1 while keeping the user's profile and account.
+ * Resets tracking to Day 1 while keeping the user's profile and account.
  * Clears all daily logs, workout sessions, and app state (both local + cloud).
  * Preserves: user name, auth session, custom workout definitions.
  */
-export async function resetChallenge(mode: AppMode = 'workout'): Promise<AppState> {
+export async function resetChallenge(): Promise<AppState> {
   const today = getToday();
   const currentState = getAppState();
 
@@ -1025,6 +1087,7 @@ export async function resetChallenge(mode: AppMode = 'workout'): Promise<AppStat
     // Clear cached AI quote so a fresh one is fetched
     localStorage.removeItem('iron75_ai_quote');
     localStorage.removeItem('iron75_ai_quote_date');
+    localStorage.removeItem('iron75_progression_state');
 
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -1048,8 +1111,6 @@ export async function resetChallenge(mode: AppMode = 'workout'): Promise<AppStat
     startDate: today,
     longestStreak: Math.max(currentState.longestStreak, currentState.streak),
     totalRestarts: currentState.totalRestarts + 1,
-    mode,
-    freezeCount: mode === 'workout' ? 3 : 0,
   };
   saveAppState(newState);
 
@@ -1071,14 +1132,14 @@ export async function resetChallenge(mode: AppMode = 'workout'): Promise<AppStat
 }
 
 export async function deleteAllData(): Promise<void> {
-  // 1. Clear all Iron75 keys from localStorage (preserve protected keys)
+  // 1. Clear all local tracker keys from localStorage
   if (typeof window !== 'undefined') {
     // Clear pending sync queue first — prevents stale data from being re-pushed
     localStorage.removeItem(PENDING_SYNC_KEY);
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith('iron75_') && !PROTECTED_KEYS.has(key)) {
+      if (key && key.startsWith('iron75_')) {
         keysToRemove.push(key);
       }
     }

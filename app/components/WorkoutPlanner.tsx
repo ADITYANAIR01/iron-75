@@ -6,340 +6,402 @@ import {
   CustomSession,
   CustomExercise,
   DayAssignments,
-  DefaultSessionKey,
   getCustomSessions,
   saveCustomSessions,
   getDayAssignments,
   saveDayAssignments,
-  getDefaultSessionOverrides,
-  getDefaultSessionExercises,
-  saveDefaultSessionExercises,
-  resetDefaultSessionExercises,
   createBlankSession,
   createBlankExercise,
-  DEFAULT_SESSION_KEYS,
   SESSION_COLORS,
   SESSION_EMOJIS,
   MUSCLE_GROUPS,
   EXERCISE_EMOJIS,
 } from '../lib/customWorkouts';
-import { SESSIONS, DOW_TO_SESSION } from '../lib/pplData';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
 function QuickExerciseRow({
-  exercise, index, color, onChange, onRemove,
+  exercise,
+  index,
+  color,
+  onChange,
+  onRemove,
 }: {
-  exercise: CustomExercise; index: number; color: string;
-  onChange: (ex: CustomExercise) => void; onRemove: () => void;
+  exercise: CustomExercise;
+  index: number;
+  color: string;
+  onChange: (exercise: CustomExercise) => void;
+  onRemove: () => void;
 }) {
   const emoji = EXERCISE_EMOJIS[exercise.targetMuscle] ?? '🏋️';
+
   return (
     <motion.div
       layout
-      className="flex items-center gap-2 p-2 rounded-xl"
+      className="flex items-center gap-2 rounded-xl p-2"
       style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}
-      initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }}
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
     >
-      <span className="text-sm flex-shrink-0">{emoji}</span>
+      <span className="flex-shrink-0 text-sm">{emoji}</span>
       <input
         type="text"
         placeholder={`Exercise ${index + 1}`}
         value={exercise.name}
-        onChange={(e) => onChange({ ...exercise, name: e.target.value })}
-        className="flex-1 min-w-0 px-2 py-1.5 rounded-lg text-xs font-bold"
+        onChange={(event) => onChange({ ...exercise, name: event.target.value })}
+        className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs font-bold"
         style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${color}20`, color: '#e2e8f0' }}
       />
-      <div className="flex gap-1 flex-shrink-0">
-        <input type="number" min={1} max={10} value={exercise.sets}
-          onChange={(e) => onChange({ ...exercise, sets: Math.max(1, parseInt(e.target.value) || 1) })}
-          className="w-10 px-1 py-1.5 rounded-lg text-xs text-center"
+      <div className="flex flex-shrink-0 gap-1">
+        <input
+          type="number"
+          min={1}
+          max={10}
+          value={exercise.sets}
+          onChange={(event) =>
+            onChange({ ...exercise, sets: Math.max(1, parseInt(event.target.value, 10) || 1) })
+          }
+          className="w-10 rounded-lg px-1 py-1.5 text-center text-xs"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', color: '#e2e8f0' }}
           title="Sets"
         />
-        <input type="text" placeholder="8-12" value={exercise.repRange}
-          onChange={(e) => onChange({ ...exercise, repRange: e.target.value })}
-          className="w-14 px-1 py-1.5 rounded-lg text-xs text-center"
+        <input
+          type="text"
+          placeholder="8-12"
+          value={exercise.repRange}
+          onChange={(event) => onChange({ ...exercise, repRange: event.target.value })}
+          className="w-14 rounded-lg px-1 py-1.5 text-center text-xs"
           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', color: '#e2e8f0' }}
           title="Reps"
         />
       </div>
-      {/* Muscle quick-select */}
       <select
         value={exercise.targetMuscle}
-        onChange={(e) => onChange({ ...exercise, targetMuscle: e.target.value, emoji: EXERCISE_EMOJIS[e.target.value] ?? '🏋️' })}
-        className="text-[10px] px-1 py-1.5 rounded-lg appearance-none cursor-pointer flex-shrink-0"
+        onChange={(event) =>
+          onChange({
+            ...exercise,
+            targetMuscle: event.target.value,
+            emoji: EXERCISE_EMOJIS[event.target.value] ?? '🏋️',
+          })
+        }
+        className="cursor-pointer appearance-none rounded-lg px-1 py-1.5 text-[10px]"
         style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', color: '#94a3b8', maxWidth: 70 }}
       >
-        {MUSCLE_GROUPS.map((m) => <option key={m} value={m}>{m}</option>)}
+        {MUSCLE_GROUPS.map((muscle) => (
+          <option key={muscle} value={muscle}>
+            {muscle}
+          </option>
+        ))}
       </select>
-      <button onClick={onRemove} className="text-red-400/60 hover:text-red-400 text-xs flex-shrink-0 px-1">✕</button>
+      <button onClick={onRemove} className="flex-shrink-0 px-1 text-xs text-red-400/60 hover:text-red-400">
+        ✕
+      </button>
     </motion.div>
+  );
+}
+
+function PhaseStepRow({
+  value,
+  index,
+  color,
+  placeholder,
+  onChange,
+  onRemove,
+}: {
+  value: string;
+  index: number;
+  color: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <motion.div
+      layout
+      className="flex items-center gap-2 rounded-xl p-2"
+      style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
+    >
+      <span
+        className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-black"
+        style={{ background: `${color}20`, color }}
+      >
+        {index + 1}
+      </span>
+      <input
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold"
+        style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${color}20`, color: '#e2e8f0' }}
+      />
+      <button onClick={onRemove} className="flex-shrink-0 px-1 text-xs text-red-400/60 hover:text-red-400">
+        ✕
+      </button>
+    </motion.div>
+  );
+}
+
+function PhaseListEditor({
+  title,
+  subtitle,
+  items,
+  color,
+  placeholder,
+  addLabel,
+  onChange,
+}: {
+  title: string;
+  subtitle: string;
+  items: string[];
+  color: string;
+  placeholder: string;
+  addLabel: string;
+  onChange: (items: string[]) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-bold" style={{ color }}>
+          {title} ({items.length})
+        </span>
+        <span className="text-[10px] text-gray-600">{subtitle}</span>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="rounded-xl px-3 py-2 text-[10px] text-gray-500" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
+          No steps added yet.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {items.map((item, index) => (
+            <PhaseStepRow
+              key={`${title}-${index}`}
+              value={item}
+              index={index}
+              color={color}
+              placeholder={placeholder}
+              onChange={(updatedItem) =>
+                onChange(items.map((entry, entryIndex) => (entryIndex === index ? updatedItem : entry)))
+              }
+              onRemove={() => onChange(items.filter((_, entryIndex) => entryIndex !== index))}
+            />
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={() => onChange([...items, ''])}
+        className="mt-2 w-full rounded-xl py-2 text-xs font-bold"
+        style={{ background: `${color}10`, border: `1px dashed ${color}30`, color }}
+      >
+        {addLabel}
+      </button>
+    </div>
   );
 }
 
 function InlineSessionEditor({
-  session, onSave, onCancel, assignments, onAssignmentsChange,
+  session,
+  onSave,
+  onCancel,
+  assignments,
+  onAssignmentsChange,
 }: {
   session: CustomSession;
-  onSave: (s: CustomSession) => void;
+  onSave: (session: CustomSession) => void;
   onCancel: () => void;
   assignments: DayAssignments;
-  onAssignmentsChange: (a: DayAssignments) => void;
+  onAssignmentsChange: (assignments: DayAssignments) => void;
 }) {
   const [draft, setDraft] = useState<CustomSession>(() => ({
-    ...session, exercises: session.exercises.map((e) => ({ ...e })),
+    ...session,
+    exercises: session.exercises.map((exercise) => ({ ...exercise })),
+    warmup: [...(session.warmup ?? [])],
+    cooldown: [...(session.cooldown ?? [])],
   }));
 
-  // Track which days this session is assigned to
   const selectedDays = new Set(
     Object.entries(assignments)
-      .filter(([, sid]) => sid === session.id)
-      .map(([dow]) => Number(dow)),
+      .filter(([, sessionId]) => sessionId === session.id)
+      .map(([dow]) => Number(dow))
   );
 
   const toggleDay = (dow: number) => {
-    const next = { ...assignments };
+    const nextAssignments = { ...assignments };
     if (selectedDays.has(dow)) {
-      delete next[dow];
+      delete nextAssignments[dow];
     } else {
-      next[dow] = draft.id;
+      nextAssignments[dow] = draft.id;
     }
-    onAssignmentsChange(next);
+    onAssignmentsChange(nextAssignments);
   };
 
   const color = draft.color;
-  const isValid = draft.name.trim().length > 0 && draft.exercises.length > 0 && draft.exercises.every((e) => e.name.trim());
+  const isValid =
+    draft.name.trim().length > 0 &&
+    draft.exercises.length > 0 &&
+    draft.exercises.every((exercise) => exercise.name.trim().length > 0);
 
   return (
     <motion.div
-      className="rounded-2xl overflow-hidden"
-      style={{ background: `${color}06`, border: `1px solid ${color}30` }}
-      initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-    >
-      <div className="p-4 flex flex-col gap-3">
-        {/* Row 1: Name + Emoji */}
-        <div className="flex items-center gap-2">
-          {/* Emoji picker — tiny dropdown */}
-          <div className="relative group">
-            <button className="w-10 h-10 rounded-xl text-xl flex items-center justify-center"
-              style={{ background: `${color}15`, border: `1px solid ${color}30` }}>
-              {draft.emoji}
-            </button>
-            <div className="absolute left-0 top-full mt-1 z-50 hidden group-focus-within:flex flex-wrap gap-1 p-2 rounded-xl w-48"
-              style={{ background: '#0C0C1E', border: '1px solid rgba(255,255,255,0.1)' }}>
-              {SESSION_EMOJIS.map((e) => (
-                <button key={e} onClick={() => setDraft((d) => ({ ...d, emoji: e }))}
-                  className="w-8 h-8 rounded-lg text-sm flex items-center justify-center hover:bg-white/10"
-                  style={{ background: draft.emoji === e ? color : 'transparent' }}>
-                  {e}
-                </button>
-              ))}
-            </div>
-          </div>
-          <input
-            type="text" placeholder="Workout name..."
-            value={draft.name}
-            onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-            className="flex-1 px-3 py-2.5 rounded-xl text-sm font-bold"
-            style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${color}25`, color: '#e2e8f0' }}
-          />
-        </div>
-
-        {/* Color strip */}
-        <div className="flex gap-1.5">
-          {SESSION_COLORS.map((c) => (
-            <button key={c} onClick={() => setDraft((d) => ({ ...d, color: c }))}
-              className="w-6 h-6 rounded-full transition-all" title={c}
-              style={{ background: c, border: `2px solid ${draft.color === c ? '#fff' : 'transparent'}`, transform: draft.color === c ? 'scale(1.2)' : 'scale(1)' }}
-            />
-          ))}
-        </div>
-
-        {/* ── Day Assignment Row ──────────────────────────────── */}
-        <div>
-          <div className="text-xs font-bold text-gray-400 mb-1.5 flex items-center gap-1.5">
-            📅 Schedule Days
-            <span className="text-[10px] text-gray-600 font-normal">tap to toggle</span>
-          </div>
-          <div className="flex gap-1.5">
-            {DAYS.map((day, dow) => {
-              const active = selectedDays.has(dow);
-              return (
-                <button key={dow} onClick={() => toggleDay(dow)}
-                  className="flex-1 py-2 rounded-lg text-[10px] font-black transition-all"
-                  style={{
-                    background: active ? color : 'rgba(255,255,255,0.03)',
-                    color: active ? '#06060F' : '#64748b',
-                    border: `1.5px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
-                    boxShadow: active ? `0 0 8px ${color}30` : 'none',
-                  }}>
-                  {day}
-                </button>
-              );
-            })}
-          </div>
-          {selectedDays.size === 0 && (
-            <p className="text-[10px] text-gray-600 mt-1">No days selected — uses PPL default rotation</p>
-          )}
-        </div>
-
-        {/* Exercises */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold" style={{ color }}>Exercises ({draft.exercises.length})</span>
-            <span className="text-[10px] text-gray-600">sets · reps · muscle</span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {draft.exercises.map((ex, i) => (
-              <QuickExerciseRow key={ex.id} exercise={ex} index={i} color={color}
-                onChange={(updated) => setDraft((d) => ({ ...d, exercises: d.exercises.map((x, j) => j === i ? updated : x) }))}
-                onRemove={() => setDraft((d) => ({ ...d, exercises: d.exercises.filter((_, j) => j !== i) }))}
-              />
-            ))}
-          </div>
-          <button
-            onClick={() => setDraft((d) => ({ ...d, exercises: [...d.exercises, createBlankExercise()] }))}
-            className="mt-2 w-full py-2 rounded-xl text-xs font-bold"
-            style={{ background: `${color}10`, border: `1px dashed ${color}30`, color }}
-          >
-            + Add Exercise
-          </button>
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-2 pt-1">
-          <button onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl text-xs font-bold"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}>
-            Cancel
-          </button>
-          <motion.button whileTap={{ scale: 0.95 }}
-            onClick={() => isValid && onSave(draft)}
-            className="flex-1 py-2.5 rounded-xl text-xs font-black"
-            style={{
-              background: isValid ? color : 'rgba(255,255,255,0.03)',
-              color: isValid ? '#06060F' : '#475569',
-              cursor: isValid ? 'pointer' : 'not-allowed',
-              boxShadow: isValid ? `0 4px 16px ${color}30` : 'none',
-            }}>
-            {session.name ? '💾 Update' : '✨ Create'}
-          </motion.button>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-function InlineDefaultTemplateEditor({
-  sessionKey,
-  exercises,
-  hasOverride,
-  onChangeExercise,
-  onRemoveExercise,
-  onAddExercise,
-  onCancel,
-  onReset,
-  onSave,
-}: {
-  sessionKey: DefaultSessionKey;
-  exercises: CustomExercise[];
-  hasOverride: boolean;
-  onChangeExercise: (index: number, ex: CustomExercise) => void;
-  onRemoveExercise: (index: number) => void;
-  onAddExercise: () => void;
-  onCancel: () => void;
-  onReset: () => void;
-  onSave: () => void;
-}) {
-  const session = SESSIONS[sessionKey];
-  const color = session.color;
-  const trimmedNames = exercises.map((ex) => ex.name.trim().toLowerCase()).filter(Boolean);
-  const hasDuplicateNames = new Set(trimmedNames).size !== trimmedNames.length;
-  const isValid = exercises.length > 0 && exercises.every((ex) => ex.name.trim().length > 0) && !hasDuplicateNames;
-
-  return (
-    <motion.div
-      className="rounded-2xl overflow-hidden"
+      className="overflow-hidden rounded-2xl"
       style={{ background: `${color}06`, border: `1px solid ${color}30` }}
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: 'auto' }}
       exit={{ opacity: 0, height: 0 }}
     >
-      <div className="p-4 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{session.emoji}</span>
-            <div>
-              <p className="text-sm font-black text-white">Edit {session.name} Template</p>
-              <p className="text-[10px] text-gray-500">Changes apply to every {session.name} day (future logs)</p>
+      <div className="flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-2">
+          <div className="group relative">
+            <button
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-xl"
+              style={{ background: `${color}15`, border: `1px solid ${color}30` }}
+            >
+              {draft.emoji}
+            </button>
+            <div
+              className="absolute left-0 top-full z-50 mt-1 hidden w-48 flex-wrap gap-1 rounded-xl p-2 group-focus-within:flex"
+              style={{ background: '#0C0C1E', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              {SESSION_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => setDraft((prev) => ({ ...prev, emoji }))}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-sm hover:bg-white/10"
+                  style={{ background: draft.emoji === emoji ? color : 'transparent' }}
+                >
+                  {emoji}
+                </button>
+              ))}
             </div>
           </div>
-          {hasOverride && (
-            <span
-              className="text-[10px] px-2 py-1 rounded-full font-bold"
-              style={{ background: `${color}20`, color, border: `1px solid ${color}40` }}
-            >
-              Overridden
-            </span>
-          )}
+          <input
+            type="text"
+            placeholder="Workout name..."
+            value={draft.name}
+            onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+            className="flex-1 rounded-xl px-3 py-2.5 text-sm font-bold"
+            style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${color}25`, color: '#e2e8f0' }}
+          />
+        </div>
+
+        <div className="flex gap-1.5">
+          {SESSION_COLORS.map((sessionColor) => (
+            <button
+              key={sessionColor}
+              onClick={() => setDraft((prev) => ({ ...prev, color: sessionColor }))}
+              className="h-6 w-6 rounded-full transition-all"
+              title={sessionColor}
+              style={{
+                background: sessionColor,
+                border: `2px solid ${draft.color === sessionColor ? '#fff' : 'transparent'}`,
+                transform: draft.color === sessionColor ? 'scale(1.2)' : 'scale(1)',
+              }}
+            />
+          ))}
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold" style={{ color }}>Exercises ({exercises.length})</span>
-            <span className="text-[10px] text-gray-600">add / remove globally</span>
+          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-gray-400">
+            📅 Schedule Days
+            <span className="text-[10px] font-normal text-gray-600">tap to toggle</span>
+          </div>
+          <div className="flex gap-1.5">
+            {DAYS.map((day, dow) => {
+              const active = selectedDays.has(dow);
+              return (
+                <button
+                  key={dow}
+                  onClick={() => toggleDay(dow)}
+                  className="flex-1 rounded-lg py-2 text-[10px] font-black transition-all"
+                  style={{
+                    background: active ? color : 'rgba(255,255,255,0.03)',
+                    color: active ? '#06060F' : '#64748b',
+                    border: `1.5px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
+                    boxShadow: active ? `0 0 8px ${color}30` : 'none',
+                  }}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+          {selectedDays.size === 0 && <p className="mt-1 text-[10px] text-gray-600">No days selected yet.</p>}
+        </div>
+
+        <PhaseListEditor
+          title="1) Pre-workout Warm-up + Dynamic Stretching"
+          subtitle="prep + mobility"
+          items={draft.warmup}
+          color={color}
+          placeholder="e.g. Dynamic leg swings x 20"
+          addLabel="+ Add Warm-up Step"
+          onChange={(warmup) => setDraft((prev) => ({ ...prev, warmup }))}
+        />
+
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-bold" style={{ color }}>
+              2) Main Workout Exercises ({draft.exercises.length})
+            </span>
+            <span className="text-[10px] text-gray-600">sets · reps · muscle</span>
           </div>
           <div className="flex flex-col gap-1.5">
-            {exercises.map((ex, i) => (
+            {draft.exercises.map((exercise, index) => (
               <QuickExerciseRow
-                key={ex.id}
-                exercise={ex}
-                index={i}
+                key={exercise.id}
+                exercise={exercise}
+                index={index}
                 color={color}
-                onChange={(updated) => onChangeExercise(i, updated)}
-                onRemove={() => onRemoveExercise(i)}
+                onChange={(updated) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    exercises: prev.exercises.map((row, rowIndex) => (rowIndex === index ? updated : row)),
+                  }))
+                }
+                onRemove={() =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    exercises: prev.exercises.filter((_, rowIndex) => rowIndex !== index),
+                  }))
+                }
               />
             ))}
           </div>
           <button
-            onClick={onAddExercise}
-            className="mt-2 w-full py-2 rounded-xl text-xs font-bold"
+            onClick={() => setDraft((prev) => ({ ...prev, exercises: [...prev.exercises, createBlankExercise()] }))}
+            className="mt-2 w-full rounded-xl py-2 text-xs font-bold"
             style={{ background: `${color}10`, border: `1px dashed ${color}30`, color }}
           >
             + Add Exercise
           </button>
-          {hasDuplicateNames && (
-            <p className="text-[10px] text-red-400 mt-1">Exercise names must be unique in a session.</p>
-          )}
         </div>
+
+        <PhaseListEditor
+          title="3) Post-workout Static Stretching / Cool-down"
+          subtitle="recovery + breathing"
+          items={draft.cooldown}
+          color="#00F5D4"
+          placeholder="e.g. Hamstring stretch x 45s"
+          addLabel="+ Add Cool-down Step"
+          onChange={(cooldown) => setDraft((prev) => ({ ...prev, cooldown }))}
+        />
 
         <div className="flex gap-2 pt-1">
           <button
             onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl text-xs font-bold"
+            className="flex-1 rounded-xl py-2.5 text-xs font-bold"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}
           >
             Cancel
           </button>
-          <button
-            onClick={onReset}
-            disabled={!hasOverride}
-            className="flex-1 py-2.5 rounded-xl text-xs font-bold"
-            style={{
-              background: hasOverride ? 'rgba(255,107,53,0.1)' : 'rgba(255,255,255,0.03)',
-              border: `1px solid ${hasOverride ? 'rgba(255,107,53,0.3)' : 'rgba(255,255,255,0.08)'}`,
-              color: hasOverride ? '#FF6B35' : '#475569',
-              cursor: hasOverride ? 'pointer' : 'not-allowed',
-            }}
-          >
-            Reset Default
-          </button>
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={onSave}
-            disabled={!isValid}
-            className="flex-1 py-2.5 rounded-xl text-xs font-black"
+            onClick={() => isValid && onSave(draft)}
+            className="flex-1 rounded-xl py-2.5 text-xs font-black"
             style={{
               background: isValid ? color : 'rgba(255,255,255,0.03)',
               color: isValid ? '#06060F' : '#475569',
@@ -347,7 +409,7 @@ function InlineDefaultTemplateEditor({
               boxShadow: isValid ? `0 4px 16px ${color}30` : 'none',
             }}
           >
-            Save Template
+            {session.name ? '💾 Update' : '✨ Create'}
           </motion.button>
         </div>
       </div>
@@ -359,247 +421,156 @@ export default function WorkoutPlanner({ onClose }: { onClose: () => void }) {
   const [sessions, setSessions] = useState<CustomSession[]>([]);
   const [assignments, setAssignments] = useState<DayAssignments>({});
   const [editingSession, setEditingSession] = useState<CustomSession | null>(null);
-  const [editingDefaultKey, setEditingDefaultKey] = useState<DefaultSessionKey | null>(null);
-  const [defaultDraftExercises, setDefaultDraftExercises] = useState<CustomExercise[]>([]);
-  const [defaultOverrideKeys, setDefaultOverrideKeys] = useState<Set<string>>(new Set());
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     setSessions(getCustomSessions());
     setAssignments(getDayAssignments());
-    setDefaultOverrideKeys(new Set(Object.keys(getDefaultSessionOverrides())));
   }, []);
 
-  const handleAssignmentsChange = useCallback((next: DayAssignments) => {
-    saveDayAssignments(next);
-    setAssignments(next);
+  const handleAssignmentsChange = useCallback((nextAssignments: DayAssignments) => {
+    saveDayAssignments(nextAssignments);
+    setAssignments(nextAssignments);
   }, []);
 
   const handleSave = useCallback((session: CustomSession) => {
     setSessions((prev) => {
-      const exists = prev.find((s) => s.id === session.id);
-      const next = exists ? prev.map((s) => (s.id === session.id ? session : s)) : [...prev, session];
-      saveCustomSessions(next);
-      return next;
+      const existing = prev.find((entry) => entry.id === session.id);
+      const nextSessions = existing
+        ? prev.map((entry) => (entry.id === session.id ? session : entry))
+        : [...prev, session];
+      saveCustomSessions(nextSessions);
+      return nextSessions;
     });
     setEditingSession(null);
   }, []);
 
   const handleDelete = useCallback((id: string) => {
     setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      saveCustomSessions(next);
-      return next;
+      const nextSessions = prev.filter((session) => session.id !== id);
+      saveCustomSessions(nextSessions);
+      return nextSessions;
     });
+
     setAssignments((prev) => {
-      const next: DayAssignments = {};
-      for (const [dow, sid] of Object.entries(prev)) {
-        if (sid !== id) next[Number(dow)] = sid;
+      const nextAssignments: DayAssignments = {};
+      for (const [dow, sessionId] of Object.entries(prev)) {
+        if (sessionId !== id) nextAssignments[Number(dow)] = sessionId;
       }
-      saveDayAssignments(next);
-      return next;
+      saveDayAssignments(nextAssignments);
+      return nextAssignments;
     });
   }, []);
-
-  const refreshDefaultOverrideKeys = useCallback(() => {
-    setDefaultOverrideKeys(new Set(Object.keys(getDefaultSessionOverrides())));
-  }, []);
-
-  const openDefaultEditor = useCallback((sessionKey: DefaultSessionKey) => {
-    setEditingSession(null);
-    setEditingDefaultKey(sessionKey);
-    setDefaultDraftExercises(getDefaultSessionExercises(sessionKey).map((ex) => ({ ...ex })));
-  }, []);
-
-  const closeDefaultEditor = useCallback(() => {
-    setEditingDefaultKey(null);
-    setDefaultDraftExercises([]);
-  }, []);
-
-  const updateDefaultExercise = useCallback((index: number, updated: CustomExercise) => {
-    setDefaultDraftExercises((prev) => prev.map((ex, i) => (i === index ? updated : ex)));
-  }, []);
-
-  const removeDefaultExercise = useCallback((index: number) => {
-    setDefaultDraftExercises((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const addDefaultExercise = useCallback(() => {
-    setDefaultDraftExercises((prev) => [...prev, createBlankExercise()]);
-  }, []);
-
-  const saveDefaultTemplate = useCallback(() => {
-    if (!editingDefaultKey) return;
-    saveDefaultSessionExercises(editingDefaultKey, defaultDraftExercises);
-    setDefaultDraftExercises(getDefaultSessionExercises(editingDefaultKey).map((ex) => ({ ...ex })));
-    refreshDefaultOverrideKeys();
-  }, [defaultDraftExercises, editingDefaultKey, refreshDefaultOverrideKeys]);
-
-  const resetDefaultTemplate = useCallback(() => {
-    if (!editingDefaultKey) return;
-    resetDefaultSessionExercises(editingDefaultKey);
-    setDefaultDraftExercises(getDefaultSessionExercises(editingDefaultKey).map((ex) => ({ ...ex })));
-    refreshDefaultOverrideKeys();
-  }, [editingDefaultKey, refreshDefaultOverrideKeys]);
 
   if (!mounted) return null;
 
   const todayDow = new Date().getDay();
-  const isAnyEditorOpen = editingSession !== null || editingDefaultKey !== null;
+  const isEditorOpen = editingSession !== null;
 
   return (
-    <div className="flex flex-col gap-4 px-4 pt-5 pb-24">
-      {/* ── Header ──────────────────────────────────────────────── */}
+    <div className="flex flex-col gap-4 px-4 pb-24 pt-5">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-black" style={{ background: 'linear-gradient(135deg, #A855F7, #FF6B9D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             Workout Planner
           </h1>
-          <p className="text-[10px] text-gray-600 mt-0.5">Create workouts & assign them to days</p>
+          <p className="mt-0.5 text-[10px] text-gray-600">Create custom sessions and assign them to your week</p>
         </div>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={onClose}
-          className="text-xs font-bold px-3 py-1.5 rounded-full"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8' }}>
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={onClose}
+          className="rounded-full px-3 py-1.5 text-xs font-bold"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8' }}
+        >
           ← Back
         </motion.button>
       </motion.div>
 
-      {/* ── Weekly Overview (read-only strip) ───────────────────── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-        <div className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2">
+        <div className="mb-2 flex items-center gap-2 text-xs font-bold text-gray-400">
           📅 This Week
-          <span className="text-[10px] text-gray-600 font-normal">edit days inside session editor</span>
+          <span className="text-[10px] font-normal text-gray-600">assign days inside session editor</span>
         </div>
         <div className="flex gap-1">
-          {[0, 1, 2, 3, 4, 5, 6].map((dow) => {
+          {DAYS.map((day, dow) => {
             const assignedId = assignments[dow];
-            const customMatch = assignedId ? sessions.find((s) => s.id === assignedId) : null;
-            const pplKey = DOW_TO_SESSION[dow];
-            const pplSession = SESSIONS[pplKey];
-            const display = customMatch
-              ? { emoji: customMatch.emoji, color: customMatch.color, name: customMatch.name }
-              : { emoji: pplSession?.emoji ?? '🏋️', color: pplSession?.color ?? '#64748b', name: pplSession?.name ?? '?' };
+            const assigned = assignedId ? sessions.find((session) => session.id === assignedId) : null;
+            const display = assigned
+              ? { emoji: assigned.emoji, color: assigned.color, name: assigned.name }
+              : { emoji: '🛌', color: '#64748b', name: 'Rest' };
             const isToday = dow === todayDow;
+
             return (
-              <div key={dow} className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg"
+              <div
+                key={dow}
+                className="flex flex-1 flex-col items-center gap-0.5 rounded-lg py-1.5"
                 style={{
                   background: isToday ? `${display.color}15` : 'rgba(12,12,30,0.5)',
-                  border: `1px solid ${isToday ? display.color + '40' : 'rgba(255,255,255,0.04)'}`,
-                }}>
-                <span className="text-[9px] font-black" style={{ color: isToday ? display.color : '#64748b' }}>{DAYS[dow]}</span>
+                  border: `1px solid ${isToday ? `${display.color}40` : 'rgba(255,255,255,0.04)'}`,
+                }}
+                title={display.name}
+              >
+                <span className="text-[9px] font-black" style={{ color: isToday ? display.color : '#64748b' }}>
+                  {day}
+                </span>
                 <span className="text-sm leading-none">{display.emoji}</span>
-                {!!customMatch && <span className="w-1 h-1 rounded-full" style={{ background: display.color }} />}
+                {assigned && <span className="h-1 w-1 rounded-full" style={{ background: display.color }} />}
               </div>
             );
           })}
         </div>
       </motion.div>
 
-      {/* ── My Custom Sessions ─────────────────────────────────── */}
-      {!editingSession && (
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
-        <div className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2">
-          Edit Weekly Templates
-          <span className="text-[10px] text-gray-600 font-normal">global changes for Push/Pull/Legs/Mobility</span>
-        </div>
-        <div className="flex flex-col gap-1.5 mb-3">
-          {DEFAULT_SESSION_KEYS.map((key) => {
-            const session = SESSIONS[key];
-            const exerciseCount = getDefaultSessionExercises(key).length;
-            const hasOverride = defaultOverrideKeys.has(key);
-            const active = editingDefaultKey === key;
-            return (
-              <motion.div
-                key={key}
-                layout
-                className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
-                style={{ background: `${session.color}06`, border: `1px solid ${active ? session.color + '50' : session.color + '20'}` }}
-              >
-                <span className="text-lg">{session.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold text-white truncate">{session.name}</div>
-                  <div className="text-[10px] text-gray-500">
-                    {exerciseCount} exercises
-                    {hasOverride && <span style={{ color: session.color }}> - custom template</span>}
-                  </div>
-                </div>
-                <button
-                  onClick={() => openDefaultEditor(key)}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px]"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
-                >
-                  Edit
-                </button>
-              </motion.div>
-            );
-          })}
-        </div>
-
-        <AnimatePresence>
-          {editingDefaultKey && (
-            <InlineDefaultTemplateEditor
-              sessionKey={editingDefaultKey}
-              exercises={defaultDraftExercises}
-              hasOverride={defaultOverrideKeys.has(editingDefaultKey)}
-              onChangeExercise={updateDefaultExercise}
-              onRemoveExercise={removeDefaultExercise}
-              onAddExercise={addDefaultExercise}
-              onCancel={closeDefaultEditor}
-              onReset={resetDefaultTemplate}
-              onSave={saveDefaultTemplate}
-            />
-          )}
-        </AnimatePresence>
-      </motion.div>
-      )}
-
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <div className="text-xs font-bold text-gray-400 mb-2 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between text-xs font-bold text-gray-400">
           <span className="flex items-center gap-2">🏋️ My Sessions ({sessions.length})</span>
-          {!isAnyEditorOpen && (
-            <motion.button whileTap={{ scale: 0.9 }}
-              onClick={() => {
-                closeDefaultEditor();
-                setEditingSession(createBlankSession());
-              }}
-              className="text-[10px] font-bold px-2.5 py-1 rounded-full"
-              style={{ background: '#A855F720', color: '#A855F7', border: '1px solid #A855F740' }}>
+          {!isEditorOpen && (
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setEditingSession(createBlankSession())}
+              className="rounded-full px-2.5 py-1 text-[10px] font-bold"
+              style={{ background: '#A855F720', color: '#A855F7', border: '1px solid #A855F740' }}
+            >
               + New
             </motion.button>
           )}
         </div>
 
-        {/* Existing custom sessions — compact list */}
-        {sessions.length > 0 && !isAnyEditorOpen && (
-          <div className="flex flex-col gap-1.5 mb-3">
-            {sessions.map((s) => {
+        {sessions.length > 0 && !isEditorOpen && (
+          <div className="mb-3 flex flex-col gap-1.5">
+            {sessions.map((session) => {
               const assignedDays = Object.entries(assignments)
-                .filter(([, sid]) => sid === s.id)
+                .filter(([, sessionId]) => sessionId === session.id)
                 .map(([dow]) => DAYS[Number(dow)]);
+
               return (
-                <motion.div key={s.id} layout
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
-                  style={{ background: `${s.color}06`, border: `1px solid ${s.color}20` }}>
-                  <span className="text-lg">{s.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold text-white truncate">{s.name}</div>
+                <motion.div
+                  key={session.id}
+                  layout
+                  className="flex items-center gap-2.5 rounded-xl px-3 py-2.5"
+                  style={{ background: `${session.color}06`, border: `1px solid ${session.color}20` }}
+                >
+                  <span className="text-lg">{session.emoji}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-bold text-white">{session.name}</div>
                     <div className="text-[10px] text-gray-500">
-                      {s.exercises.length} exercises
-                      {assignedDays.length > 0 && <span style={{ color: s.color }}> · {assignedDays.join(', ')}</span>}
+                      {session.warmup.length} warm-up · {session.exercises.length} exercises · {session.cooldown.length} cool-down
+                      {assignedDays.length > 0 && <span style={{ color: session.color }}> · {assignedDays.join(', ')}</span>}
                     </div>
                   </div>
-                  <button onClick={() => {
-                    closeDefaultEditor();
-                    setEditingSession(s);
-                  }}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px]"
-                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button
+                    onClick={() => setEditingSession(session)}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[11px]"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+                  >
                     ✏️
                   </button>
-                  <button onClick={() => handleDelete(s.id)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px]"
-                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
+                  <button
+                    onClick={() => handleDelete(session.id)}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[11px]"
+                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}
+                  >
                     🗑️
                   </button>
                 </motion.div>
@@ -608,16 +579,14 @@ export default function WorkoutPlanner({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {sessions.length === 0 && !isAnyEditorOpen && (
-          <div className="rounded-xl p-6 text-center mb-3"
-            style={{ background: 'rgba(12,12,30,0.6)', border: '1px solid rgba(255,255,255,0.04)' }}>
-            <div className="text-2xl mb-2">🏋️</div>
+        {sessions.length === 0 && !isEditorOpen && (
+          <div className="mb-3 rounded-xl p-6 text-center" style={{ background: 'rgba(12,12,30,0.6)', border: '1px solid rgba(255,255,255,0.04)' }}>
+            <div className="mb-2 text-2xl">🏋️</div>
             <p className="text-xs text-gray-500">No custom sessions yet</p>
-            <p className="text-[10px] text-gray-600 mt-0.5">Tap &quot;+ New&quot; to create one</p>
+            <p className="mt-0.5 text-[10px] text-gray-600">Tap &quot;+ New&quot; to create your first routine</p>
           </div>
         )}
 
-        {/* Inline editor */}
         <AnimatePresence>
           {editingSession && (
             <InlineSessionEditor
@@ -630,25 +599,6 @@ export default function WorkoutPlanner({ onClose }: { onClose: () => void }) {
           )}
         </AnimatePresence>
       </motion.div>
-
-      {/* ── PPL Quick Reference (collapsed) ────────────────────── */}
-      <details className="group">
-        <summary className="text-[10px] text-gray-600 cursor-pointer flex items-center gap-1 select-none">
-          <span className="group-open:rotate-90 transition-transform inline-block">▸</span>
-          Default PPL Sessions Reference
-        </summary>
-        <div className="mt-2 flex flex-col gap-1">
-          {Object.values(SESSIONS).map((s) => (
-            <div key={s.key} className="flex items-center gap-2 px-2 py-1.5 rounded-lg"
-              style={{ background: 'rgba(12,12,30,0.4)' }}>
-              <span className="text-sm">{s.emoji}</span>
-              <span className="text-[10px] font-bold text-gray-500">{s.name}</span>
-              <span className="text-[9px] text-gray-700 ml-auto">{s.exercises.length} exercises · {s.muscles}</span>
-            </div>
-          ))}
-        </div>
-      </details>
     </div>
   );
 }
-

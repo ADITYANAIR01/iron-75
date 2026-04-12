@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Iron75 — 75 Hard Tracker",
-  "short_name": "Iron75",
-  "description": "Your personal 75 Hard challenge tracker with PPL workout scheduler, AI coaching, and gamified daily habits.",
+  "name": "GrindOs — Habit Tracker & Gym Logger",
+  "short_name": "GrindOs",
+  "description": "Simple habit tracker and gym logger with custom workout logging, AI coaching, and progress insights.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

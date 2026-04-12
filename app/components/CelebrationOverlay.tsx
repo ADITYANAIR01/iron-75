@@ -71,36 +71,34 @@ export default function CelebrationOverlay({
     if (!visible || audioPlayedRef.current) return;
     audioPlayedRef.current = true;
 
-    // Play success sound via Howler.js
-    const playSound = async () => {
+    // Play a local WebAudio success tone (CSP-safe, offline-safe, no third-party requests).
+    const playSound = () => {
       try {
-        const { Howl } = await import('howler');
-        const sound = new Howl({
-          // Free CDN success sound
-          src: ['https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3'],
-          volume: 0.7,
-          onloaderror: () => {
-            // Fallback: Web Audio API beep
-            try {
-              const ctx = new AudioContext();
-              const osc = ctx.createOscillator();
-              const gain = ctx.createGain();
-              osc.connect(gain);
-              gain.connect(ctx.destination);
-              osc.frequency.setValueAtTime(880, ctx.currentTime);
-              osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3);
-              gain.gain.setValueAtTime(0.3, ctx.currentTime);
-              gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
-              osc.start(ctx.currentTime);
-              osc.stop(ctx.currentTime + 0.8);
-            } catch {
-              // silent fail
-            }
-          },
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+        const notes = [880, 1046.5, 1318.5];
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.0001, now + i * 0.14);
+          gain.gain.linearRampToValueAtTime(0.18, now + i * 0.14 + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.14 + 0.13);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + i * 0.14);
+          osc.stop(now + i * 0.14 + 0.14);
         });
-        sound.play();
+        setTimeout(() => {
+          void ctx.close();
+        }, 800);
       } catch {
-        // Howler load failed — silent fail
+        // Audio may be blocked by browser autoplay policy.
       }
     };
 

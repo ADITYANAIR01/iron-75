@@ -2,47 +2,67 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SESSIONS, SessionSpec, ExerciseSpec } from '../lib/pplData';
+import { SessionSpec, ExerciseSpec } from '../lib/pplData';
 import { getToday, saveDailyLog, getOrCreateTodayLog, getDayOfWeek, getWorkoutState, saveWorkoutState, isWorkoutComplete, markWorkoutComplete } from '../lib/storage';
-import { getSessionForDow, getAllSessionSpecs, getSessionById } from '../lib/customWorkouts';
+import { getSessionForDow, getAllSessionSpecs } from '../lib/customWorkouts';
 import WorkoutPlanner from './WorkoutPlanner';
-import type { SetState, ExerciseState } from '../lib/types';
+import type { ExerciseState, SetState } from '../lib/types';
 
 function buildInitialExerciseState(ex: ExerciseSpec): ExerciseState {
+  const setCount = Number.isFinite(ex.sets) ? Math.max(1, Math.floor(ex.sets)) : 1;
   return {
-    sets: Array.from({ length: ex.sets }, () => ({ done: false, reps: '' })),
+    sets: Array.from({ length: setCount }, () => ({ done: false, reps: '' })),
     notes: '',
     expanded: false,
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function sanitizeRepsValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '';
+}
+
+function sanitizeSet(set: unknown): SetState {
+  if (!isRecord(set)) return { done: false, reps: '' };
+  return {
+    done: set.done === true,
+    reps: sanitizeRepsValue(set.reps),
+  };
+}
+
+function sanitizeExerciseState(state: unknown, fallbackSetCount: number, useSavedLength = false): ExerciseState {
+  const source = isRecord(state) ? state : {};
+  const sourceSets = Array.isArray(source.sets) ? source.sets : [];
+  const normalizedFallback = Number.isFinite(fallbackSetCount) ? Math.max(1, Math.floor(fallbackSetCount)) : 1;
+  const setCount = useSavedLength && sourceSets.length > 0 ? sourceSets.length : normalizedFallback;
+
+  return {
+    sets: Array.from({ length: setCount }, (_, index) => sanitizeSet(sourceSets[index])),
+    notes: typeof source.notes === 'string' ? source.notes : '',
+    expanded: source.expanded === true,
+  };
+}
+
 function loadWorkoutState(date: string, session: SessionSpec): Record<string, ExerciseState> {
   const saved = getWorkoutState(date, session.key);
-  if (saved && isWorkoutComplete(date, session.key)) {
-    // Keep completed-session snapshots immutable so template edits don't rewrite past completed logs.
-    return saved;
-  }
+  const isComplete = isWorkoutComplete(date, session.key);
+  const savedRecord = saved && isRecord(saved) ? saved : null;
   const next: Record<string, ExerciseState> = {};
 
   session.exercises.forEach((ex) => {
-    const prev = saved?.[ex.name];
-    if (!prev) {
-      next[ex.name] = buildInitialExerciseState(ex);
-      return;
-    }
-
-    next[ex.name] = {
-      sets: Array.from({ length: ex.sets }, (_, i) => ({
-        done: prev.sets?.[i]?.done ?? false,
-        reps: prev.sets?.[i]?.reps ?? '',
-      })),
-      notes: prev.notes ?? '',
-      expanded: prev.expanded ?? false,
-    };
+    const prev = savedRecord?.[ex.name];
+    next[ex.name] = prev
+      ? sanitizeExerciseState(prev, ex.sets, isComplete)
+      : buildInitialExerciseState(ex);
   });
 
-  if (saved && JSON.stringify(saved) !== JSON.stringify(next)) {
-    saveWorkoutState(date, session.key, next, isWorkoutComplete(date, session.key));
+  if (!isComplete && saved && JSON.stringify(saved) !== JSON.stringify(next)) {
+    saveWorkoutState(date, session.key, next, false);
   }
 
   return next;
@@ -189,7 +209,6 @@ function SessionPills({ current, onSelect, allSpecs }: { current: string; onSele
     <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
       {allSpecs.map((s) => {
         const isActive = s.key === current;
-        const isCustom = s.key.startsWith('custom_');
         return (
           <motion.button
             key={s.key}
@@ -203,7 +222,7 @@ function SessionPills({ current, onSelect, allSpecs }: { current: string; onSele
             }}
             whileTap={{ scale: 0.9 }}
           >
-            {s.emoji} {s.name} {isCustom ? '✦' : ''}
+            {s.emoji} {s.name}
           </motion.button>
         );
       })}
@@ -211,12 +230,30 @@ function SessionPills({ current, onSelect, allSpecs }: { current: string; onSele
   );
 }
 
-function WarmCoolSection({ title, items, color }: { title: string; items: string[]; color: string }) {
-  const [open, setOpen] = useState(false);
+function WarmCoolSection({
+  phase,
+  title,
+  subtitle,
+  items,
+  color,
+  defaultOpen = true,
+}: {
+  phase: string;
+  title: string;
+  subtitle: string;
+  items: string[];
+  color: string;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(12,12,30,0.7)', border: '1px solid rgba(255,255,255,0.06)' }}>
       <button onClick={() => setOpen((p) => !p)} className="w-full flex items-center justify-between p-3 text-left">
-        <span className="text-sm font-bold" style={{ color }}>{title}</span>
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-gray-500">{phase}</div>
+          <div className="text-sm font-bold" style={{ color }}>{title}</div>
+          <div className="text-[10px] text-gray-500">{subtitle}</div>
+        </div>
         <motion.span style={{ fontSize: '11px', color: '#64748b' }} animate={{ rotate: open ? 180 : 0 }}>▼</motion.span>
       </button>
       <AnimatePresence initial={false}>
@@ -247,61 +284,65 @@ export default function WorkoutScreen() {
 
   const [showPlanner, setShowPlanner] = useState(false);
   const [allSpecs, setAllSpecs] = useState<SessionSpec[]>([]);
-  const [todaySessionKey, setTodaySessionKey] = useState('pushA');
-  const [selectedSessionKey, setSelectedSessionKey] = useState('pushA');
+  const [todaySessionKey, setTodaySessionKey] = useState<string | null>(null);
+  const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
   const [exerciseStates, setExerciseStates] = useState<Record<string, ExerciseState>>({});
   const [sessionComplete, setSessionComplete] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  // Resolve today's session from custom assignments or PPL default
-  useEffect(() => {
-    setMounted(true);
-    const todaySess = getSessionForDow(todayDow);
-    setTodaySessionKey(todaySess.key);
-    setSelectedSessionKey(todaySess.key);
-    setAllSpecs(getAllSessionSpecs());
+  const refreshSessions = useCallback(() => {
+    const sessions = getAllSessionSpecs();
+    const todaySession = getSessionForDow(todayDow);
+    setAllSpecs(sessions);
+    setTodaySessionKey(todaySession?.key ?? null);
+    setSelectedSessionKey((prev) => {
+      if (prev && sessions.some((session) => session.key === prev)) return prev;
+      if (todaySession && sessions.some((session) => session.key === todaySession.key)) return todaySession.key;
+      return sessions[0]?.key ?? null;
+    });
   }, [todayDow]);
 
-  // Refresh session list when planner is closed (in case user created new sessions)
+  useEffect(() => {
+    setMounted(true);
+    refreshSessions();
+  }, [refreshSessions]);
+
   useEffect(() => {
     if (!showPlanner && mounted) {
-      const todaySess = getSessionForDow(todayDow);
-      setTodaySessionKey(todaySess.key);
-      setAllSpecs(getAllSessionSpecs());
+      refreshSessions();
     }
-  }, [showPlanner, mounted, todayDow]);
+  }, [showPlanner, mounted, refreshSessions]);
 
-  // Resolve current session (handles both PPL keys and custom IDs)
-  // Memoize to avoid creating a new object on every render (which would
-  // cause the useEffect below to fire infinitely).
-  const session: SessionSpec = (() => {
-    const found = getSessionById(selectedSessionKey);
-    if (found) return found;
-    return getSessionById('pushA') ?? SESSIONS['pushA'];
-  })();
-  const sessionKey = session.key;
+  const session = allSpecs.find((entry) => entry.key === selectedSessionKey) ?? allSpecs[0] ?? null;
+  const sessionKey = session?.key ?? '';
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || !session) {
+      setExerciseStates({});
+      setSessionComplete(false);
+      return;
+    }
     setExerciseStates(loadWorkoutState(today, session));
     setSessionComplete(isWorkoutComplete(today, sessionKey));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSessionKey, mounted, today]);
+  }, [mounted, session, sessionKey, today]);
 
   const updateExercise = useCallback(
     (exName: string, next: ExerciseState) => {
+      if (!session) return;
+      const expectedSets = session.exercises.find((exercise) => exercise.name === exName)?.sets ?? next.sets.length;
+      const sanitizedNext = sanitizeExerciseState(next, expectedSets);
       setExerciseStates((prev) => {
-        const updated = { ...prev, [exName]: next };
+        const updated = { ...prev, [exName]: sanitizedNext };
         saveWorkoutState(today, session.key, updated);
         return updated;
       });
     },
-    [today, session.key]
+    [today, session]
   );
 
   // Auto-complete session when every set of every exercise is done
   useEffect(() => {
-    if (sessionComplete || !mounted || session.exercises.length === 0) return;
+    if (sessionComplete || !mounted || !session || session.exercises.length === 0) return;
     const allDone = session.exercises.every(
       (ex) =>
         (exerciseStates[ex.name]?.sets ?? []).length > 0 &&
@@ -315,19 +356,19 @@ export default function WorkoutScreen() {
         setSessionComplete(true);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exerciseStates, sessionKey, sessionComplete, today, mounted]);
+  }, [exerciseStates, mounted, session, sessionComplete, today]);
 
-  const totalSets = session.exercises.reduce((s, ex) => s + ex.sets, 0);
-  const doneSets = session.exercises.reduce(
+  const totalSets = session?.exercises.reduce((s, ex) => s + ex.sets, 0) ?? 0;
+  const doneSets = session?.exercises.reduce(
     (s, ex) => s + (exerciseStates[ex.name]?.sets.filter((st) => st.done).length ?? 0),
     0
-  );
-  const completedExercises = session.exercises.filter(
+  ) ?? 0;
+  const completedExercises = session?.exercises.filter(
     (ex) => exerciseStates[ex.name]?.sets.every((s) => s.done)
-  ).length;
+  ).length ?? 0;
 
   const handleCompleteSession = () => {
+    if (!session) return;
     const log = getOrCreateTodayLog();
     saveDailyLog({ ...log, gymWorkoutDone: true });
     markWorkoutComplete(today, session.key);
@@ -347,6 +388,29 @@ export default function WorkoutScreen() {
     return <WorkoutPlanner onClose={() => setShowPlanner(false)} />;
   }
 
+  if (!session) {
+    return (
+      <div className="flex flex-col gap-4 px-4 pt-5 pb-24">
+        <div
+          className="rounded-3xl p-6 text-center"
+          style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <div className="mb-2 text-4xl">🧩</div>
+          <p className="text-sm font-bold text-white">No workout routine configured yet</p>
+          <p className="mt-1 text-xs text-gray-400">Open Planner to create your first custom session and assign days.</p>
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowPlanner(true)}
+            className="mt-4 rounded-full px-4 py-2 text-xs font-bold"
+            style={{ background: 'linear-gradient(135deg, #A855F7, #FF6B9D)', color: '#06060F' }}
+          >
+            📋 Open Planner
+          </motion.button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4 px-4 pt-5 pb-24">
       <div>
@@ -361,7 +425,7 @@ export default function WorkoutScreen() {
             📋 Planner
           </motion.button>
         </div>
-        <SessionPills current={selectedSessionKey} onSelect={setSelectedSessionKey} allSpecs={allSpecs} />
+        <SessionPills current={selectedSessionKey ?? session.key} onSelect={(key) => setSelectedSessionKey(key)} allSpecs={allSpecs} />
       </div>
 
       <AnimatePresence mode="wait">
@@ -405,7 +469,23 @@ export default function WorkoutScreen() {
         </motion.div>
       </AnimatePresence>
 
-      <WarmCoolSection title="🔥 Warm-up" items={session.warmup} color={session.color} />
+      <div className="rounded-2xl px-3 py-2 text-[10px] text-gray-500" style={{ background: 'rgba(12,12,30,0.55)', border: '1px solid rgba(255,255,255,0.05)' }}>
+        Session Flow: Phase 1 warm-up + dynamic stretch → Phase 2 main workout → Phase 3 static stretch cool-down.
+      </div>
+
+      <WarmCoolSection
+        phase="Phase 1"
+        title="🔥 Pre-workout Warm-up + Dynamic Stretching"
+        subtitle="Prepare your body before lifting."
+        items={session.warmup}
+        color={session.color}
+      />
+
+      <div className="rounded-2xl px-3 py-2" style={{ background: 'rgba(12,12,30,0.55)', border: `1px solid ${session.color}25` }}>
+        <div className="text-[10px] uppercase tracking-widest text-gray-500">Phase 2</div>
+        <div className="text-sm font-bold text-white">🏋️ Main Workout of the Day</div>
+        <div className="text-[10px] text-gray-500">{session.exercises.length} exercise blocks</div>
+      </div>
 
       <AnimatePresence mode="wait">
         <motion.div key={session.key + '-exercises'} className="flex flex-col gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -425,7 +505,14 @@ export default function WorkoutScreen() {
         </motion.div>
       </AnimatePresence>
 
-      <WarmCoolSection title="❄️ Cool-down" items={session.cooldown} color="#00F5D4" />
+      <WarmCoolSection
+        phase="Phase 3"
+        title="❄️ Post-workout Static Stretching / Cool-down"
+        subtitle="Recover and downshift after training."
+        items={session.cooldown}
+        color="#00F5D4"
+        defaultOpen={false}
+      />
 
       {sessionComplete ? (
         <motion.div

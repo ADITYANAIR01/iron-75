@@ -2,24 +2,41 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '../../lib/supabase';
+import { createClient, getSupabaseConfigError } from '../../lib/supabase';
 
 export default function AuthCallback() {
   const router = useRouter();
 
   useEffect(() => {
-    const supabase = createClient();
+    const configError = getSupabaseConfigError();
+    if (configError) {
+      console.warn(configError);
+      router.replace('/login');
+      return;
+    }
 
-    // exchangeCodeForSession picks up the `code` query param automatically
-    supabase.auth.exchangeCodeForSession(
-      new URLSearchParams(window.location.search).get('code') ?? ''
-    ).then(({ error }) => {
-      if (error) {
-        router.replace('/login');
-      } else {
-        router.replace('/dashboard');
-      }
-    });
+    try {
+      const supabase = createClient();
+      const code = new URLSearchParams(window.location.search).get('code') ?? '';
+
+      // exchangeCodeForSession picks up the `code` query param automatically
+      supabase.auth
+        .exchangeCodeForSession(code)
+        .then(({ error }) => {
+          if (error) {
+            router.replace('/login');
+          } else {
+            router.replace('/dashboard');
+          }
+        })
+        .catch((error) => {
+          console.warn('Supabase exchangeCodeForSession failed:', error);
+          router.replace('/login');
+        });
+    } catch (error) {
+      console.warn('Supabase auth callback failed:', error);
+      router.replace('/login');
+    }
   }, [router]);
 
   return (

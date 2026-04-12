@@ -1,16 +1,18 @@
-//
-// Lets users create their own workout sessions and assign them to days of the
-// week. Unassigned days fall back to the default PPL rotation.
-
-import { SESSIONS, DOW_TO_SESSION, SessionSpec, ExerciseSpec } from './pplData';
+import { SessionSpec, ExerciseSpec } from './pplData';
 import { createClient } from './supabase';
 
-// ── Storage keys ──────────────────────────────────────────────────────────────
 const CUSTOM_SESSIONS_KEY = 'iron75_custom_sessions';
 const DAY_ASSIGNMENTS_KEY = 'iron75_day_assignments';
-const DEFAULT_SESSION_OVERRIDES_KEY = 'iron75_default_session_overrides';
+export const DEFAULT_WARMUP_PLAN = ['5 min light cardio', 'Dynamic stretching', 'Activation drills'];
+export const DEFAULT_COOLDOWN_PLAN = ['Light stretching - 3 min', 'Foam roll tight areas', 'Deep breathing - 2 min'];
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+type SupabaseErrorLike = { message?: string; code?: string };
+
+function isRlsError(error: SupabaseErrorLike | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === '42501' || (error.message ?? '').toLowerCase().includes('row-level security policy');
+}
+
 export interface CustomExercise {
   id: string;
   name: string;
@@ -23,8 +25,8 @@ export interface CustomExercise {
 }
 
 export interface CustomSession {
-  id: string;       // unique, e.g. "custom_abc123"
-  name: string;     // user-given name
+  id: string;
+  name: string;
   emoji: string;
   color: string;
   exercises: CustomExercise[];
@@ -32,42 +34,12 @@ export interface CustomSession {
   cooldown: string[];
 }
 
-export type DefaultSessionKey =
-  | 'pushA'
-  | 'pullA'
-  | 'legsA'
-  | 'pushB'
-  | 'pullB'
-  | 'legsB'
-  | 'mobility';
-
-export const DEFAULT_SESSION_KEYS: DefaultSessionKey[] = [
-  'pushA',
-  'pullA',
-  'legsA',
-  'pushB',
-  'pullB',
-  'legsB',
-  'mobility',
-];
-
-const DEFAULT_SESSION_KEY_SET = new Set<string>(DEFAULT_SESSION_KEYS);
-export type DefaultSessionOverrides = Partial<Record<DefaultSessionKey, CustomExercise[]>>;
-
-// Maps day-of-week (0=Sun..6=Sat) → session id (custom id or PPL key).
-// Missing entries = use PPL default for that day.
 export type DayAssignments = Partial<Record<number, string>>;
 
-function isDefaultSessionKey(key: string): key is DefaultSessionKey {
-  return DEFAULT_SESSION_KEY_SET.has(key);
-}
-
-// ── ID generator ──────────────────────────────────────────────────────────────
 export function generateId(): string {
-  return 'custom_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  return `custom_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 }
 
-// ── Preset colors & emojis for custom sessions ────────────────────────────────
 export const SESSION_COLORS = [
   '#FF6B35', '#A855F7', '#00F5D4', '#BAFF39', '#FF6B9D', '#38BDF8',
   '#F59E0B', '#EF4444', '#10B981', '#EC4899', '#6366F1', '#14B8A6',
@@ -84,318 +56,244 @@ export const MUSCLE_GROUPS = [
 ];
 
 export const EXERCISE_EMOJIS: Record<string, string> = {
-  Chest: '🫁', Back: '🔙', Shoulders: '🎯', Biceps: '💪', Triceps: '🦾',
-  Quads: '🦵', Hamstrings: '🦿', Glutes: '🍑', Calves: '🐄', Core: '🧱',
-  'Full Body': '🏋️', Cardio: '🏃', Flexibility: '🧘',
+  Chest: '🫁',
+  Back: '🔙',
+  Shoulders: '🎯',
+  Biceps: '💪',
+  Triceps: '🦾',
+  Quads: '🦵',
+  Hamstrings: '🦿',
+  Glutes: '🍑',
+  Calves: '🐄',
+  Core: '🧱',
+  'Full Body': '🏋️',
+  Cardio: '🏃',
+  Flexibility: '🧘',
 };
 
-// ── CRUD: Custom Sessions ─────────────────────────────────────────────────────
-function cleanExercise(ex: CustomExercise): CustomExercise {
+function sanitizeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function sanitizeSessionId(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '';
+}
+
+function parseSessionCollection(value: unknown): Array<Partial<CustomSession> | null | undefined> {
+  if (Array.isArray(value)) return value;
+  if (isRecord(value)) return Object.values(value) as Array<Partial<CustomSession> | null | undefined>;
+  return [];
+}
+
+export function sanitizePhaseItems(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return [...fallback];
+  return value.map((item) => sanitizeText(item)).filter((item) => item.length > 0);
+}
+
+export function sanitizeDayAssignments(value: unknown): DayAssignments {
+  const next: DayAssignments = {};
+  const sourceEntries: Array<[string, unknown]> = Array.isArray(value)
+    ? value.map((sessionId, dow) => [String(dow), sessionId])
+    : isRecord(value)
+      ? Object.entries(value)
+      : [];
+
+  for (const [rawDow, rawSessionId] of sourceEntries) {
+    const dow = Number(rawDow);
+    if (!Number.isInteger(dow) || dow < 0 || dow > 6) continue;
+    const sessionId = sanitizeSessionId(rawSessionId);
+    if (sessionId.length === 0) continue;
+    next[dow] = sessionId;
+  }
+
+  return next;
+}
+
+function sanitizeExercise(exercise: Partial<CustomExercise> | null | undefined): CustomExercise {
+  const source = exercise ?? {};
+  const targetMuscle = sanitizeText(source.targetMuscle) || 'Full Body';
+  const sets = Number.isFinite(source.sets) ? Math.floor(source.sets as number) : 1;
   return {
-    ...ex,
-    name: ex.name.trim(),
-    emoji: ex.emoji || EXERCISE_EMOJIS[ex.targetMuscle] || EXERCISE_EMOJIS['Full Body'],
-    sets: Math.max(1, ex.sets || 1),
-    repRange: ex.repRange.trim() || '8-12',
-    rest: ex.rest.trim() || '90s',
-    targetMuscle: ex.targetMuscle || 'Full Body',
-    tip: ex.tip.trim() || 'Focus on form and progressive overload.',
+    id: sanitizeText(source.id) || generateId(),
+    name: sanitizeText(source.name),
+    emoji: sanitizeText(source.emoji) || EXERCISE_EMOJIS[targetMuscle] || EXERCISE_EMOJIS['Full Body'],
+    sets: Math.max(1, sets),
+    repRange: sanitizeText(source.repRange) || '8-12',
+    rest: sanitizeText(source.rest) || '90s',
+    targetMuscle,
+    tip: sanitizeText(source.tip) || 'Focus on form and progressive overload.',
   };
 }
 
-function customExerciseToSpec(ex: CustomExercise): ExerciseSpec {
-  const cleaned = cleanExercise(ex);
+export function normalizeCustomSession(session: Partial<CustomSession> | null | undefined): CustomSession {
+  const source = session ?? {};
+  const exercises = (Array.isArray(source.exercises) ? source.exercises : [])
+    .map(sanitizeExercise)
+    .filter((exercise) => exercise.name.length > 0);
+
   return {
-    name: cleaned.name,
-    emoji: cleaned.emoji,
-    sets: cleaned.sets,
-    repRange: cleaned.repRange,
-    rest: cleaned.rest,
-    tip: cleaned.tip,
-    targetMuscle: cleaned.targetMuscle,
+    id: sanitizeText(source.id) || generateId(),
+    name: sanitizeText(source.name),
+    emoji: sanitizeText(source.emoji) || '🏋️',
+    color: sanitizeText(source.color) || '#A855F7',
+    exercises,
+    warmup: sanitizePhaseItems(source.warmup, DEFAULT_WARMUP_PLAN),
+    cooldown: sanitizePhaseItems(source.cooldown, DEFAULT_COOLDOWN_PLAN),
   };
 }
 
-function exerciseSpecToCustom(ex: ExerciseSpec): CustomExercise {
-  return {
-    id: generateId(),
-    name: ex.name,
-    emoji: ex.emoji,
-    sets: ex.sets,
-    repRange: ex.repRange,
-    rest: ex.rest,
-    targetMuscle: ex.targetMuscle,
-    tip: ex.tip,
-  };
+function parseJson<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 export function getCustomSessions(): CustomSession[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(CUSTOM_SESSIONS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  const parsed = parseJson<unknown>(CUSTOM_SESSIONS_KEY, []);
+  const sessions = parseSessionCollection(parsed);
+  return sessions.map((session) => normalizeCustomSession(session as Partial<CustomSession>)).filter((session) => session.name.length > 0);
 }
 
 export function saveCustomSessions(sessions: CustomSession[]): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(sessions));
+  const sanitized = sessions.map(normalizeCustomSession).filter((session) => session.name.length > 0);
+  localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(sanitized));
   syncCustomWorkoutsToSupabase();
 }
 
-// ── CRUD: Day Assignments ─────────────────────────────────────────────────────
 export function getDayAssignments(): DayAssignments {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = localStorage.getItem(DAY_ASSIGNMENTS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+  const parsed = parseJson<unknown>(DAY_ASSIGNMENTS_KEY, {});
+  return sanitizeDayAssignments(parsed);
 }
 
 export function saveDayAssignments(assignments: DayAssignments): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(assignments));
+  const sanitized = sanitizeDayAssignments(assignments);
+  localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(sanitized));
   syncCustomWorkoutsToSupabase();
 }
 
-export function getDefaultSessionOverrides(): DefaultSessionOverrides {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = localStorage.getItem(DEFAULT_SESSION_OVERRIDES_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-export function getDefaultSessionExercises(sessionKey: DefaultSessionKey): CustomExercise[] {
-  const overrides = getDefaultSessionOverrides();
-  const custom = overrides[sessionKey];
-  if (custom && custom.length > 0) {
-    return custom.map((ex) => ({ ...cleanExercise(ex), id: ex.id || generateId() }));
-  }
-  return SESSIONS[sessionKey].exercises.map(exerciseSpecToCustom);
-}
-
-export function saveDefaultSessionExercises(sessionKey: DefaultSessionKey, exercises: CustomExercise[]): void {
-  if (typeof window === 'undefined') return;
-
-  const cleaned = exercises
-    .map((ex) => ({ ...cleanExercise(ex), id: ex.id || generateId() }))
-    .filter((ex) => ex.name.length > 0);
-
-  const baseSpecs = SESSIONS[sessionKey].exercises;
-  const cleanedSpecs = cleaned.map(customExerciseToSpec);
-  const isSameAsBase = JSON.stringify(cleanedSpecs) === JSON.stringify(baseSpecs);
-
-  const overrides = getDefaultSessionOverrides();
-  if (cleaned.length === 0 || isSameAsBase) {
-    delete overrides[sessionKey];
-  } else {
-    overrides[sessionKey] = cleaned;
-  }
-
-  localStorage.setItem(DEFAULT_SESSION_OVERRIDES_KEY, JSON.stringify(overrides));
-  syncCustomWorkoutsToSupabase();
-}
-
-export function resetDefaultSessionExercises(sessionKey: DefaultSessionKey): void {
-  if (typeof window === 'undefined') return;
-  const overrides = getDefaultSessionOverrides();
-  delete overrides[sessionKey];
-  localStorage.setItem(DEFAULT_SESSION_OVERRIDES_KEY, JSON.stringify(overrides));
-  syncCustomWorkoutsToSupabase();
-}
-
-// ── Supabase sync for custom workouts ─────────────────────────────────────────
 async function syncCustomWorkoutsToSupabase(): Promise<void> {
   try {
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
-    const sessions = getCustomSessions();
-    const assignments = getDayAssignments();
-    const defaultOverrides = getDefaultSessionOverrides();
-    const now = new Date().toISOString();
+
     const { error } = await supabase.from('app_state').upsert(
       {
         user_id: user.id,
-        custom_sessions: sessions,
-        day_assignments: assignments,
-        default_session_overrides: defaultOverrides,
-        updated_at: now,
+        custom_sessions: getCustomSessions(),
+        day_assignments: getDayAssignments(),
+        updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }
     );
-    // Backward compatibility: older DB schema may not have default_session_overrides yet.
-    if (error) {
-      await supabase.from('app_state').upsert(
-        {
-          user_id: user.id,
-          custom_sessions: sessions,
-          day_assignments: assignments,
-          updated_at: now,
-        },
-        { onConflict: 'user_id' }
-      );
+
+    if (isRlsError(error)) {
+      console.warn('Supabase custom workout sync blocked by RLS. Re-run Docs/supabase.sql policies.');
     }
   } catch {
-    // Offline — will sync on next syncFromSupabase() call
+    // Offline or unauthenticated. Local copy remains source of truth.
   }
 }
 
-/** Pull custom workouts from Supabase into localStorage. Called from syncFromSupabase(). */
 export async function syncCustomWorkoutsFromSupabase(): Promise<void> {
   try {
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
-    let supportsDefaultOverrides = true;
-    let { data: row, error } = await supabase
+
+    const { data: row, error } = await supabase
       .from('app_state')
-      .select('custom_sessions, day_assignments, default_session_overrides')
+      .select('custom_sessions, day_assignments')
       .eq('user_id', user.id)
       .single();
-    if (error) {
-      supportsDefaultOverrides = false;
-      const fallback = await supabase
-        .from('app_state')
-        .select('custom_sessions, day_assignments')
-        .eq('user_id', user.id)
-        .single();
-      row = fallback.data as typeof row;
-      error = fallback.error;
+
+    if (error || !row || typeof window === 'undefined') return;
+
+    const cloudSessions = parseSessionCollection(row.custom_sessions);
+    const cloudAssignments = sanitizeDayAssignments(row.day_assignments);
+
+    const localSessions = getCustomSessions();
+    const localAssignments = getDayAssignments();
+
+    if (localSessions.length === 0 && cloudSessions.length > 0) {
+      localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(cloudSessions.map((session) => normalizeCustomSession(session as Partial<CustomSession>))));
+    } else if (localSessions.length > 0 && cloudSessions.length === 0) {
+      syncCustomWorkoutsToSupabase();
     }
-    if (error) return;
-    if (!row) return;
-    // Only pull if cloud has data and local is empty or cloud has more content
-    if (row.custom_sessions) {
-      const cloudSessions = row.custom_sessions as CustomSession[];
-      const localSessions = getCustomSessions();
-      // If local has no custom sessions, or cloud has sessions and local doesn't match, prefer cloud
-      if (localSessions.length === 0 && cloudSessions.length > 0) {
-        localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(cloudSessions));
-      } else if (localSessions.length > 0 && cloudSessions.length === 0) {
-        // Local has data cloud doesn't — push up
-        syncCustomWorkoutsToSupabase();
-      }
-      // If both have data, keep local (user was editing) — it will push up on next save
-    }
-    if (row.day_assignments) {
-      const cloudAssignments = row.day_assignments as DayAssignments;
-      const localAssignments = getDayAssignments();
-      const localKeys = Object.keys(localAssignments);
-      const cloudKeys = Object.keys(cloudAssignments);
-      if (localKeys.length === 0 && cloudKeys.length > 0) {
-        localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(cloudAssignments));
-      } else if (localKeys.length > 0 && cloudKeys.length === 0) {
-        syncCustomWorkoutsToSupabase();
-      }
-    }
-    if (supportsDefaultOverrides && row.default_session_overrides) {
-      const cloudOverrides = row.default_session_overrides as DefaultSessionOverrides;
-      const localOverrides = getDefaultSessionOverrides();
-      const localKeys = Object.keys(localOverrides);
-      const cloudKeys = Object.keys(cloudOverrides);
-      if (localKeys.length === 0 && cloudKeys.length > 0) {
-        localStorage.setItem(DEFAULT_SESSION_OVERRIDES_KEY, JSON.stringify(cloudOverrides));
-      } else if (localKeys.length > 0 && cloudKeys.length === 0) {
-        syncCustomWorkoutsToSupabase();
-      }
+
+    if (Object.keys(localAssignments).length === 0 && Object.keys(cloudAssignments).length > 0) {
+      localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(cloudAssignments));
+    } else if (Object.keys(localAssignments).length > 0 && Object.keys(cloudAssignments).length === 0) {
+      syncCustomWorkoutsToSupabase();
     }
   } catch {
-    // Offline — skip
+    // Offline — skip.
   }
 }
 
-// ── Resolve session for a given day-of-week ───────────────────────────────────
-// Returns: a SessionSpec (from PPL) or a CustomSession converted to SessionSpec
-
-function customToSessionSpec(cs: CustomSession): SessionSpec {
+function customToSessionSpec(session: CustomSession): SessionSpec {
+  const cleaned = normalizeCustomSession(session);
   return {
-    key: cs.id,
-    name: cs.name,
-    fullName: cs.name,
-    emoji: cs.emoji,
-    color: cs.color,
-    tagline: 'Custom workout — your rules, your gains.',
-    muscles: cs.exercises.map((e) => e.targetMuscle).filter((v, i, a) => a.indexOf(v) === i).join(' · ') || 'Custom',
-    exercises: cs.exercises.map((e): ExerciseSpec => ({
-      name: e.name,
-      emoji: e.emoji,
-      sets: e.sets,
-      repRange: e.repRange,
-      rest: e.rest,
-      tip: e.tip || 'Focus on form and progressive overload.',
-      targetMuscle: e.targetMuscle,
-    })),
-    warmup: cs.warmup.length ? cs.warmup : ['5 min light cardio', 'Dynamic stretching'],
-    cooldown: cs.cooldown.length ? cs.cooldown : ['Light stretching', 'Deep breathing — 2 minutes'],
+    key: cleaned.id,
+    name: cleaned.name,
+    fullName: cleaned.name,
+    emoji: cleaned.emoji,
+    color: cleaned.color,
+    tagline: 'Custom routine - built around your plan.',
+    muscles:
+      cleaned.exercises
+        .map((exercise) => exercise.targetMuscle)
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .join(' · ') || 'Custom',
+    exercises: cleaned.exercises.map(
+      (exercise): ExerciseSpec => ({
+        name: exercise.name,
+        emoji: exercise.emoji,
+        sets: exercise.sets,
+        repRange: exercise.repRange,
+        rest: exercise.rest,
+        tip: exercise.tip,
+        targetMuscle: exercise.targetMuscle,
+      })
+    ),
+    warmup: cleaned.warmup.length > 0 ? cleaned.warmup : [...DEFAULT_WARMUP_PLAN],
+    cooldown: cleaned.cooldown.length > 0 ? cleaned.cooldown : [...DEFAULT_COOLDOWN_PLAN],
   };
 }
 
-function getResolvedDefaultSession(sessionKey: DefaultSessionKey): SessionSpec {
-  const base = SESSIONS[sessionKey];
-  const overrides = getDefaultSessionOverrides();
-  const customExercises = overrides[sessionKey];
-  if (!customExercises || customExercises.length === 0) return base;
-
-  const exercises = customExercises
-    .map(customExerciseToSpec)
-    .filter((ex) => ex.name.trim().length > 0);
-
-  return {
-    ...base,
-    exercises: exercises.length > 0 ? exercises : base.exercises,
-  };
-}
-
-/**
- * Get the session for a day-of-week, respecting custom assignments.
- * Falls back to PPL default if no custom assignment.
- */
-export function getSessionForDow(dow: number): SessionSpec {
+export function getSessionForDow(dow: number): SessionSpec | null {
   const assignments = getDayAssignments();
   const assignedId = assignments[dow];
-
-  if (assignedId) {
-    // Check if it's a PPL session key
-    if (isDefaultSessionKey(assignedId)) return getResolvedDefaultSession(assignedId);
-    // Check custom sessions
-    const custom = getCustomSessions().find((s) => s.id === assignedId);
-    if (custom) return customToSessionSpec(custom);
-  }
-
-  // Fallback to default PPL mapping
-  const pplKey = (DOW_TO_SESSION[dow] ?? 'pushA') as DefaultSessionKey;
-  return getResolvedDefaultSession(pplKey);
+  if (!assignedId) return null;
+  return getSessionById(assignedId);
 }
 
-/**
- * Get the full ordered list of sessions to show in the pill selector.
- * Includes default PPL sessions + any custom sessions.
- */
 export function getAllSessionSpecs(): SessionSpec[] {
-  const pplSessions = DEFAULT_SESSION_KEYS.map((k) => getResolvedDefaultSession(k));
-  const custom = getCustomSessions().map(customToSessionSpec);
-  return [...pplSessions, ...custom];
+  return getCustomSessions().map(customToSessionSpec);
 }
 
-/**
- * Get a SessionSpec by key/id (works for both PPL and custom).
- */
 export function getSessionById(id: string): SessionSpec | null {
-  if (isDefaultSessionKey(id)) return getResolvedDefaultSession(id);
-  if (SESSIONS[id]) return SESSIONS[id];
-  const custom = getCustomSessions().find((s) => s.id === id);
-  return custom ? customToSessionSpec(custom) : null;
+  const session = getCustomSessions().find((entry) => entry.id === id);
+  return session ? customToSessionSpec(session) : null;
 }
 
-// ── Default blank exercise template ───────────────────────────────────────────
 export function createBlankExercise(): CustomExercise {
   return {
     id: generateId(),
@@ -416,7 +314,7 @@ export function createBlankSession(): CustomSession {
     emoji: SESSION_EMOJIS[Math.floor(Math.random() * SESSION_EMOJIS.length)],
     color: SESSION_COLORS[Math.floor(Math.random() * SESSION_COLORS.length)],
     exercises: [createBlankExercise()],
-    warmup: ['5 min light cardio', 'Dynamic stretching', 'Activation drills'],
-    cooldown: ['Light stretching — 3 min', 'Foam roll tight areas', 'Deep breathing — 2 min'],
+    warmup: [...DEFAULT_WARMUP_PLAN],
+    cooldown: [...DEFAULT_COOLDOWN_PLAN],
   };
 }

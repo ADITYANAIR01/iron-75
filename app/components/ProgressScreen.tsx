@@ -18,12 +18,19 @@ import {
 } from 'recharts';
 import { DailyLog } from '../lib/types';
 import { getDailyLog, getAppState } from '../lib/storage';
+import {
+  WeeklyAccountabilityStatus,
+  buildWeeklyAccountabilityStatus,
+  getAccountabilityCircleProfile,
+  getAccountabilityWeekWindow,
+} from '../lib/accountability';
+import { useAuth } from './AuthProvider';
 
 interface DayStatus {
   day: number;
   date: string;
   status: 'complete' | 'failed' | 'future';
-  tasksCompleted: number; // 0–7
+  tasksCompleted: number; // 0–5 optional habits
   log: DailyLog | null;
 }
 
@@ -33,21 +40,26 @@ type ChartRow = {
   energy: number;
   motivation: number;
   soreness: number;
-  water: number;
   tasks: number;
 };
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T12:00:00');
   d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getDateForDay(startDate: string, dayNumber: number): string {
+  return addDays(startDate, dayNumber - 1);
 }
 
 function countTasks(log: DailyLog): number {
   let n = 0;
   if (log.gymWorkoutDone) n++;
   if (log.outdoorWalkDone) n++;
-  if (log.waterGoalMet) n++;
   if (
     log.dietSlots.breakfast ||
     log.dietSlots.lunch ||
@@ -71,11 +83,12 @@ function moodValue(mood: string): number {
   return MAP[mood] ?? 0;
 }
 
-function buildDayStatuses(startDate: string, currentDay: number): DayStatus[] {
+function buildDayStatuses(startDate: string, currentDay: number, windowDays: number): DayStatus[] {
   const days: DayStatus[] = [];
-  for (let i = 0; i < 75; i++) {
-    const dayNum = i + 1;
-    const date = addDays(startDate, i);
+  const startDay = Math.max(1, currentDay - windowDays + 1);
+  for (let i = 0; i < windowDays; i++) {
+    const dayNum = startDay + i;
+    const date = getDateForDay(startDate, dayNum);
     if (dayNum > currentDay) {
       days.push({ day: dayNum, date, status: 'future', tasksCompleted: 0, log: null });
       continue;
@@ -88,7 +101,7 @@ function buildDayStatuses(startDate: string, currentDay: number): DayStatus[] {
         day: dayNum,
         date,
         log,
-        status: log.allTasksComplete ? 'complete' : isToday ? 'future' : 'failed',
+        status: log.gymWorkoutDone ? 'complete' : isToday ? 'future' : 'failed',
         tasksCompleted: tasks,
       });
     } else {
@@ -107,7 +120,6 @@ function buildChartData(days: DayStatus[]): ChartRow[] {
       energy: d.log!.energyLevel,
       motivation: d.log!.motivationLevel,
       soreness: d.log!.sorenessLevel,
-      water: parseFloat(d.log!.waterLiters.toFixed(2)),
       tasks: d.tasksCompleted,
     }));
 }
@@ -115,6 +127,7 @@ function buildChartData(days: DayStatus[]): ChartRow[] {
 const COMPLETE_COLOR = '#00F5D4';
 const FAILED_COLOR = '#FF6B35';
 const FUTURE_COLOR = '#141432';
+const WINDOW_OPTIONS = [10, 30, 75, 150, 300] as const;
 
 function statusColor(s: DayStatus['status']): string {
   if (s === 'complete') return COMPLETE_COLOR;
@@ -125,22 +138,22 @@ function statusColor(s: DayStatus['status']): string {
 function ringFillColor(pct: number, isFuture: boolean): string {
   if (isFuture) return FUTURE_COLOR;
   if (pct >= 1) return COMPLETE_COLOR;
-  if (pct >= 0.57) return '#BAFF39';
+  if (pct >= 0.6) return '#BAFF39';
   if (pct > 0) return FAILED_COLOR;
   return '#FF4757';
 }
 
 function taskBarColor(tasks: number): string {
-  if (tasks === 6) return '#00F5D4';
+  if (tasks === 5) return '#00F5D4';
   if (tasks >= 3) return '#FF6B35';
   return '#FF4757';
 }
 
-function HeatmapGrid({ days }: { days: DayStatus[] }) {
+function HeatmapGrid({ days, columns = 11 }: { days: DayStatus[]; columns?: number }) {
   return (
     <div>
-      <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(11, 1fr)' }}>
-        {days.map((d) => (
+      <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+        {days.map((d, idx) => (
           <motion.div
             key={d.day}
             className="aspect-square rounded-[4px] cursor-default"
@@ -148,11 +161,11 @@ function HeatmapGrid({ days }: { days: DayStatus[] }) {
               background: statusColor(d.status),
               boxShadow: d.status === 'complete' ? `0 0 8px ${COMPLETE_COLOR}30` : d.status === 'failed' ? `0 0 6px ${FAILED_COLOR}20` : 'none',
             }}
-            title={`Day ${d.day} (${d.date}) — ${d.status}${d.status !== 'future' ? `: ${d.tasksCompleted}/6 tasks` : ''}`}
+            title={`Day ${d.day} (${d.date}) — ${d.status}${d.status !== 'future' ? `: ${d.tasksCompleted}/5 habits` : ''}`}
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{
-              delay: d.day * 0.005,
+              delay: idx * 0.005,
               type: 'spring',
               stiffness: 220,
               damping: 18,
@@ -181,25 +194,25 @@ function HeatmapGrid({ days }: { days: DayStatus[] }) {
   );
 }
 
-function RingView({ days }: { days: DayStatus[] }) {
+function RingView({ days, columns = 11 }: { days: DayStatus[]; columns?: number }) {
   const SIZE = 32;
   const R = 11;
   const CIRC = 2 * Math.PI * R;
   return (
-    <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(11, 1fr)' }}>
-      {days.map((d) => {
-        const pct = d.status === 'future' ? 0 : d.tasksCompleted / 6;
+    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+      {days.map((d, idx) => {
+        const pct = d.status === 'future' ? 0 : d.tasksCompleted / 5;
         const color = ringFillColor(pct, d.status === 'future');
         const offset = CIRC * (1 - pct);
         return (
           <motion.div
             key={d.day}
             className="flex items-center justify-center"
-            title={`Day ${d.day}: ${d.tasksCompleted}/6 tasks`}
+            title={`Day ${d.day}: ${d.tasksCompleted}/5 habits`}
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{
-              delay: d.day * 0.005,
+              delay: idx * 0.005,
               type: 'spring',
               stiffness: 220,
               damping: 18,
@@ -228,7 +241,7 @@ function RingView({ days }: { days: DayStatus[] }) {
                 initial={{ strokeDashoffset: CIRC }}
                 transition={{
                   duration: 0.7,
-                  delay: d.day * 0.008,
+                  delay: idx * 0.008,
                   ease: 'easeOut',
                 }}
                 style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%' }}
@@ -305,21 +318,38 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 }
 
 export default function ProgressScreen() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'photos' | 'charts'>('overview');
   const [heatmapView, setHeatmapView] = useState<'grid' | 'rings'>('grid');
+  const [windowDays, setWindowDays] = useState<(typeof WINDOW_OPTIONS)[number]>(75);
   const [days, setDays] = useState<DayStatus[]>([]);
   const [chartData, setChartData] = useState<ChartRow[]>([]);
+  const [accountabilityStatus, setAccountabilityStatus] = useState<WeeklyAccountabilityStatus | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     const appSt = getAppState();
     const startDate = appSt.startDate;
     const currentDay = appSt.currentDay;
-    const d = buildDayStatuses(startDate, currentDay);
+    const d = buildDayStatuses(startDate, currentDay, windowDays);
     setDays(d);
     setChartData(buildChartData(d));
-  }, []);
+    const referenceDate = getDateForDay(startDate, currentDay);
+    const weekWindow = getAccountabilityWeekWindow(referenceDate);
+    const weeklyLogs = weekWindow.dates
+      .map((date) => getDailyLog(date))
+      .filter((log): log is DailyLog => Boolean(log));
+    setAccountabilityStatus(buildWeeklyAccountabilityStatus({
+      profile: getAccountabilityCircleProfile(),
+      logs: weeklyLogs,
+      referenceDate,
+    }));
+  }, [mounted, windowDays]);
 
   const TABS = ['overview', 'photos', 'charts'] as const;
   const TAB_LABELS: Record<string, string> = {
@@ -331,6 +361,8 @@ export default function ProgressScreen() {
   const completeCount = days.filter((d) => d.status === 'complete').length;
   const failedCount = days.filter((d) => d.status === 'failed').length;
   const futureCount = days.filter((d) => d.status === 'future').length;
+  const xAxisInterval = windowDays >= 300 ? 29 : windowDays >= 150 ? 14 : windowDays >= 75 ? 9 : 0;
+  const heatmapColumns = windowDays >= 300 ? 15 : windowDays >= 150 ? 13 : 11;
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
@@ -339,7 +371,7 @@ export default function ProgressScreen() {
         <h1 className="text-2xl font-black" style={{ background: 'linear-gradient(135deg, #00F5D4, #38BDF8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
           Progress
         </h1>
-        <p className="text-sm text-gray-400 mt-1">Your 75-day journey visualized</p>
+        <p className="text-sm text-gray-400 mt-1">Your consistency trends visualized</p>
       </motion.div>
 
       {/* Tab row */}
@@ -361,6 +393,120 @@ export default function ProgressScreen() {
           </button>
         ))}
       </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs uppercase tracking-wide text-gray-500">Window</span>
+        {WINDOW_OPTIONS.map((option) => {
+          const active = option === windowDays;
+          return (
+            <button
+              key={option}
+              onClick={() => setWindowDays(option)}
+              className="rounded-full px-3 py-1.5 text-xs font-semibold transition-all"
+              style={{
+                background: active ? 'rgba(168,85,247,0.18)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${active ? 'rgba(168,85,247,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                color: active ? '#c4b5fd' : '#64748b',
+              }}
+            >
+              {option}d
+            </button>
+          );
+        })}
+      </div>
+
+      {accountabilityStatus && (
+        <div
+          className="rounded-2xl p-4"
+          style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-white">🤝 Weekly Accountability</h3>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                style={{
+                  background: accountabilityStatus.enabled ? 'rgba(0,245,212,0.14)' : 'rgba(255,255,255,0.06)',
+                  border: `1px solid ${accountabilityStatus.enabled ? 'rgba(0,245,212,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                  color: accountabilityStatus.enabled ? '#00F5D4' : '#94A3B8',
+                }}
+              >
+                {accountabilityStatus.enabled ? 'Mode on' : 'Mode off'}
+              </span>
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                style={{
+                  background: user ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.06)',
+                  border: `1px solid ${user ? 'rgba(56,189,248,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                  color: user ? '#38BDF8' : '#94A3B8',
+                }}
+              >
+                {user ? 'Cloud sync' : 'Local only'}
+              </span>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-500 mt-1">
+            Week {accountabilityStatus.weekStart} → {accountabilityStatus.weekEnd}
+          </p>
+          {accountabilityStatus.teamLabel && (
+            <p className="text-xs mt-1" style={{ color: '#cbd5e1' }}>
+              Team: {accountabilityStatus.teamLabel}
+            </p>
+          )}
+
+          {accountabilityStatus.enabled ? (
+            <>
+              <p className="text-sm mt-2" style={{ color: '#e2e8f0' }}>
+                Goal: {accountabilityStatus.goalTitle}
+              </p>
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                {[
+                  {
+                    label: 'Workouts',
+                    value: `${accountabilityStatus.workoutDays}/${accountabilityStatus.targetWorkoutDays}`,
+                    color: '#00F5D4',
+                  },
+                  {
+                    label: 'Check-ins',
+                    value: `${accountabilityStatus.checkInDays}/7`,
+                    color: '#A855F7',
+                  },
+                  {
+                    label: 'Remaining',
+                    value: accountabilityStatus.workoutsRemaining,
+                    color: '#FF6B35',
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="rounded-xl p-2.5 text-center"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+                  >
+                    <div className="text-lg font-black" style={{ color: item.color }}>
+                      {item.value}
+                    </div>
+                    <div className="text-[10px] text-gray-500">{item.label}</div>
+                  </div>
+                ))}
+              </div>
+              {accountabilityStatus.partnerNames.length > 0 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Circle: {accountabilityStatus.partnerNames.join(', ')}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-gray-500 mt-2">
+              Accountability mode is currently off. You can enable it in Settings anytime.
+            </p>
+          )}
+
+          <p className="text-xs mt-2" style={{ color: '#94A3B8' }}>
+            {accountabilityStatus.encouragement}
+          </p>
+        </div>
+      )}
 
       {/* Tab content */}
       <AnimatePresence mode="wait">
@@ -401,10 +547,10 @@ export default function ProgressScreen() {
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-bold" style={{ color: '#e2e8f0' }}>
-                  75-Day Heatmap
+                  {windowDays}-Day Activity Window
                 </span>
                 <span className="text-xs" style={{ color: '#64748b' }}>
-                  {completeCount} / 75 complete
+                  {completeCount} complete days
                 </span>
               </div>
 
@@ -417,7 +563,7 @@ export default function ProgressScreen() {
                     exit={{ opacity: 0, scale: 0.96 }}
                     transition={{ duration: 0.18 }}
                   >
-                    <HeatmapGrid days={days} />
+                    <HeatmapGrid days={days} columns={heatmapColumns} />
                   </motion.div>
                 ) : (
                   <motion.div
@@ -427,7 +573,7 @@ export default function ProgressScreen() {
                     exit={{ opacity: 0, scale: 0.96 }}
                     transition={{ duration: 0.18 }}
                   >
-                    <RingView days={days} />
+                    <RingView days={days} columns={heatmapColumns} />
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -474,17 +620,17 @@ export default function ProgressScreen() {
                 >
                   {(
                     [
-                      ['6/6 Complete', COMPLETE_COLOR],
-                    ['4–5/6', '#BAFF39'],
-                    ['1–3/6', FAILED_COLOR],
-                    ['0/6', '#FF4757'],
+                      ['5/5 Complete', COMPLETE_COLOR],
+                      ['3–4/5', '#BAFF39'],
+                      ['1–2/5', FAILED_COLOR],
+                      ['0/5', '#FF4757'],
                       ['Future', FUTURE_COLOR],
                     ] as [string, string][]
                   ).map(([label, color]) => (
                     <div key={label} className="flex items-center gap-1.5">
                       <div
                         className="w-3 h-3 rounded-full border"
-                        style={{ borderColor: color, background: 'transparent' }}
+                        style={{ borderColor: color, background: 'rgba(255,255,255,0)' }}
                       />
                     <span className="text-xs" style={{ color: '#64748b' }}>
                         {label}
@@ -512,20 +658,24 @@ export default function ProgressScreen() {
               const appSt = getAppState();
               const startDate = appSt.startDate;
               const currentDay = appSt.currentDay;
-              for (let i = 0; i < currentDay && i < 75; i++) {
-                const d = new Date(startDate + 'T12:00:00');
-                d.setDate(d.getDate() + i);
-                const y = d.getFullYear();
-                const mo = String(d.getMonth() + 1).padStart(2, '0');
-                const da = String(d.getDate()).padStart(2, '0');
-                const date = `${y}-${mo}-${da}`;
+              const startDay = Math.max(1, currentDay - windowDays + 1);
+              for (let dayNum = startDay; dayNum <= currentDay; dayNum++) {
+                const date = getDateForDay(startDate, dayNum);
                 const log = getDailyLog(date);
                 const urls = log?.progressPhotos?.length
                   ? log.progressPhotos
                   : log?.progressPhotoUrl ? [log.progressPhotoUrl] : [];
-                if (urls.length > 0) allDays.push({ date, urls, day: i + 1 });
+                if (urls.length > 0) allDays.push({ date, urls, day: dayNum });
               }
               const totalPhotos = allDays.reduce((s, d) => s + d.urls.length, 0);
+              const MAX_PHOTO_CELLS = 120;
+              const flatPhotos = allDays.flatMap((entry) =>
+                entry.urls.map((url, idx) => ({ entry, url, idx }))
+              );
+              const visiblePhotos =
+                flatPhotos.length > MAX_PHOTO_CELLS
+                  ? flatPhotos.slice(flatPhotos.length - MAX_PHOTO_CELLS)
+                  : flatPhotos;
 
               if (allDays.length === 0) {
                 return (
@@ -543,7 +693,10 @@ export default function ProgressScreen() {
                 <>
                   <div className="rounded-2xl p-4" style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <p className="text-sm font-bold text-white mb-1">{totalPhotos} Progress Photos</p>
-                    <p className="text-xs text-gray-500">Across {allDays.length} days — your transformation in pictures</p>
+                    <p className="text-xs text-gray-500">Across {allDays.length} days in the selected window</p>
+                    {flatPhotos.length > MAX_PHOTO_CELLS && (
+                      <p className="mt-1 text-[10px] text-gray-500">Showing latest {MAX_PHOTO_CELLS} photos for faster loading.</p>
+                    )}
                   </div>
 
                   {/* Before / After comparison */}
@@ -585,27 +738,26 @@ export default function ProgressScreen() {
 
                   {/* All photos grid */}
                   <div className="grid grid-cols-3 gap-2">
-                    {allDays.flatMap((entry) =>
-                      entry.urls.map((url, idx) => (
-                        <motion.div
-                          key={`${entry.date}-${idx}`}
-                          className="relative rounded-xl overflow-hidden aspect-[3/4]"
-                          style={{ border: '1px solid rgba(255,255,255,0.06)' }}
-                          whileHover={{ scale: 1.03 }}
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
+                    {visiblePhotos.map(({ entry, url, idx }) => (
+                      <motion.div
+                        key={`${entry.date}-${idx}`}
+                        className="relative rounded-xl overflow-hidden aspect-[3/4]"
+                        style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+                        whileHover={{ scale: 1.03 }}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt={`Day ${entry.day} #${idx + 1}`} className="w-full h-full object-cover" />
+                        <div
+                          className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center text-xs font-bold"
+                          style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={url} alt={`Day ${entry.day} #${idx + 1}`} className="w-full h-full object-cover" />
-                          <div
-                            className="absolute bottom-0 left-0 right-0 px-2 py-1 text-center text-xs font-bold"
-                            style={{ background: 'rgba(0,0,0,0.6)', color: '#FF6B35' }}
-                          >
-                            Day {entry.day}{entry.urls.length > 1 ? ` · #${idx + 1}` : ''}
-                          </div>
-                        </motion.div>
-                      ))
-                    )}
+                          Day {entry.day}
+                          {entry.urls.length > 1 ? ` · #${idx + 1}` : ''}
+                        </div>
+                      </motion.div>
+                    ))}
                   </div>
                 </>
               );
@@ -639,6 +791,7 @@ export default function ProgressScreen() {
                       <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
                       <XAxis
                         dataKey="day"
+                        interval={xAxisInterval}
                         tick={{ fill: AXIS_COLOR, fontSize: 10 }}
                         axisLine={{ stroke: GRID_COLOR }}
                         tickLine={false}
@@ -684,6 +837,7 @@ export default function ProgressScreen() {
                       <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} />
                       <XAxis
                         dataKey="day"
+                        interval={xAxisInterval}
                         tick={{ fill: AXIS_COLOR, fontSize: 10 }}
                         axisLine={{ stroke: GRID_COLOR }}
                         tickLine={false}
@@ -731,8 +885,8 @@ export default function ProgressScreen() {
                   </ResponsiveContainer>
                 </ChartCard>
 
-                {/* Chart 3 — Water intake */}
-                <ChartCard title="💧 Daily Water Intake (L)">
+                {/* Chart 3 — Habits per day, colour-coded */}
+                <ChartCard title="✅ Habits Logged per Day (out of 5)">
                   <ResponsiveContainer width="100%" height={160}>
                     <BarChart data={chartData} barCategoryGap="30%">
                       <CartesianGrid
@@ -742,61 +896,14 @@ export default function ProgressScreen() {
                       />
                       <XAxis
                         dataKey="day"
+                        interval={xAxisInterval}
                         tick={{ fill: AXIS_COLOR, fontSize: 10 }}
                         axisLine={{ stroke: GRID_COLOR }}
                         tickLine={false}
                       />
                       <YAxis
-                        domain={[0, 6]}
-                        tick={{ fill: AXIS_COLOR, fontSize: 10 }}
-                        axisLine={false}
-                        tickLine={false}
-                        width={28}
-                        tickFormatter={(v: number) => `${v}L`}
-                      />
-                      <Tooltip content={<ChartTooltip />} />
-                      <ReferenceLine
-                        y={3.8}
-                        stroke="#FFE66D"
-                        strokeDasharray="5 5"
-                        strokeOpacity={0.9}
-                        label={{
-                          value: '3.8L goal',
-                          fill: '#FFE66D',
-                          fontSize: 9,
-                          position: 'insideTopRight',
-                        }}
-                      />
-                      <Bar
-                        dataKey="water"
-                        name="Water (L)"
-                        fill="#00F5D4"
-                        radius={[4, 4, 0, 0]}
-                        animationDuration={800}
-                        animationEasing="ease-out"
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartCard>
-
-                {/* Chart 4 — Tasks per day, colour-coded */}
-                <ChartCard title="✅ Tasks Completed per Day (out of 6)">
-                  <ResponsiveContainer width="100%" height={160}>
-                    <BarChart data={chartData} barCategoryGap="30%">
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke={GRID_COLOR}
-                        vertical={false}
-                      />
-                      <XAxis
-                        dataKey="day"
-                        tick={{ fill: AXIS_COLOR, fontSize: 10 }}
-                        axisLine={{ stroke: GRID_COLOR }}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        domain={[0, 6]}
-                        ticks={[0, 1, 2, 3, 4, 5, 6]}
+                        domain={[0, 5]}
+                        ticks={[0, 1, 2, 3, 4, 5]}
                         tick={{ fill: AXIS_COLOR, fontSize: 10 }}
                         axisLine={false}
                         tickLine={false}
@@ -804,7 +911,7 @@ export default function ProgressScreen() {
                       />
                       <Tooltip content={<ChartTooltip />} />
                       <ReferenceLine
-                        y={6}
+                        y={5}
                         stroke="#00F5D4"
                         strokeDasharray="4 4"
                         strokeOpacity={0.5}
@@ -825,9 +932,9 @@ export default function ProgressScreen() {
                   <div className="flex gap-4 mt-2">
                     {(
                       [
-                      ['6/6', '#00F5D4'],
-                      ['3–5', '#FF6B35'],
-                      ['0–2', '#FF4757'],
+                        ['5/5', '#00F5D4'],
+                        ['3–4', '#FF6B35'],
+                        ['0–2', '#FF4757'],
                       ] as [string, string][]
                     ).map(([label, color]) => (
                       <div key={label} className="flex items-center gap-1">

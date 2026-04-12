@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: 'Iron75 — 75 Hard Tracker',
+  title: 'GrindOs — Habit Tracker & Gym Logger',
   description:
-    'Your personal 75 Hard challenge tracker with PPL workout scheduler, AI coaching, and gamified daily habits.',
+    'Simple habit tracker and gym logger with streaks, progress insights, and AI coaching.',
   manifest: '/manifest.json',
   icons: {
     icon: '/logo.png',
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Iron75',
+    title: 'GrindOs',
   },
 };
 

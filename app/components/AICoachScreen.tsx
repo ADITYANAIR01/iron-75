@@ -1,10 +1,16 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { getAppState, getDailyLog, getToday } from '../lib/storage';
+import { getAppState, getDailyLog, getToday, getUserFocus } from '../lib/storage';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { AppState, DailyLog, ChallengeId } from '../lib/types';
+import { AppState, DailyLog, ChallengeId, UserFocus } from '../lib/types';
 import { askGemini } from '../lib/gemini';
+import { recordTelemetryEvent } from '../lib/telemetry';
+import {
+  computeAdaptiveCoachingContext,
+  formatAdaptiveContextForPrompt,
+  type AdaptiveCoachingContext,
+} from '../lib/adaptiveCoaching';
 
 function toLocalDateString(d: Date): string {
   const y = d.getFullYear();
@@ -23,6 +29,19 @@ function getTimeOfDay(): string {
   return 'night';
 }
 
+function getRecentLogs(maxLogs = 7, lookbackDays = 14): DailyLog[] {
+  const recentLogs: DailyLog[] = [];
+  const now = new Date();
+  for (let i = 0; i < lookbackDays; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const entry = getDailyLog(toLocalDateString(d));
+    if (entry) recentLogs.push(entry);
+    if (recentLogs.length >= maxLogs) break;
+  }
+  return recentLogs;
+}
+
 const MOOD_LABEL: Record<string, string> = {
   great: 'great (5/5)', good: 'good (4/5)', meh: 'okay (3/5)',
   bad: 'bad (2/5)', terrible: 'terrible (1/5)',
@@ -33,48 +52,67 @@ const MOOD_EMOJI: Record<string, string> = {
 
 // ── Prompt builders ──────────────────────────────────────────────────────────
 
-function buildCoachPrompt(state: AppState, log: DailyLog | null): string {
-  const mode = state.mode === '75hard' ? '75 HARD (no freezes, strict)' : 'Workout Mode (with freeze charges)';
+function focusInstruction(focus: UserFocus): string {
+  if (focus === 'gym_first') {
+    return 'User focus is gym-first: prioritize workout quality, recovery, and nutrition suggestions before other tasks.';
+  }
+  if (focus === 'habit_first') {
+    return 'User focus is habit-first: prioritize consistency rituals, mood regulation, reading, and low-friction completion.';
+  }
+  return 'User focus is balanced: keep guidance split across both gym and non-gym habits.';
+}
+
+function buildCoachPrompt(
+  state: AppState,
+  log: DailyLog | null,
+  focus: UserFocus,
+  adaptiveContext: AdaptiveCoachingContext
+): string {
   const dietItems = log
     ? [log.dietSlots.breakfast, log.dietSlots.lunch, log.dietSlots.dinner, log.dietSlots.snacks].filter(Boolean)
     : [];
   const dietStr = dietItems.length > 0 ? dietItems.join(', ') : 'nothing logged yet';
   const bookStr = log?.readingBook?.trim() ? `"${log.readingBook}"` : 'not specified';
 
-  const tasksRemaining: string[] = [];
-  if (!log?.gymWorkoutDone) tasksRemaining.push('gym workout');
-  if (!log?.outdoorWalkDone) tasksRemaining.push('outdoor walk');
-  if ((log?.waterLiters ?? 0) < 3.8) tasksRemaining.push(`${(3.8 - (log?.waterLiters ?? 0)).toFixed(1)}L more water`);
-  if (!log?.readingDone) tasksRemaining.push('reading (10 pages)');
-  if (dietItems.length === 0) tasksRemaining.push('diet logging');
-  if (!log?.moodEmoji) tasksRemaining.push('mood check-in');
+  const workoutPending = !log?.gymWorkoutDone;
+  const optionalPending: string[] = [];
+  if (!log?.outdoorWalkDone) optionalPending.push('outdoor walk');
+  if (!log?.readingDone) optionalPending.push('reading (10 pages)');
+  if (dietItems.length === 0) optionalPending.push('diet logging');
+  if (!log?.moodEmoji) optionalPending.push('mood check-in');
 
   const phaseName =
-    state.currentDay <= 7 ? 'Week 1 — Foundation' :
-    state.currentDay <= 21 ? 'Weeks 2-3 — Building Momentum' :
-    state.currentDay <= 35 ? 'Danger Zone — Most People Quit Here' :
-    state.currentDay <= 55 ? 'Forging Phase — Real Transformation' :
-    'Final Stretch — Finish Line Visible';
+    state.currentDay <= 7 ? 'Foundation week' :
+    state.currentDay <= 21 ? 'Momentum building' :
+    state.currentDay <= 45 ? 'Consistency phase' :
+    'Long-run discipline';
 
-  return `Iron75 ${mode} — Day ${state.currentDay}/75 (${phaseName}).
+  return `GrindOs tracker — Day ${state.currentDay} (${phaseName}).
 
-Athlete profile: ${state.streak}-day current streak, longest ever ${state.longestStreak} days, ${state.totalRestarts} restarts.${state.mode === 'workout' ? ` Freeze charges remaining: ${state.freezeCount}/5.` : ''}
+Athlete profile: ${state.streak}-day current streak, longest ever ${state.longestStreak} days, ${state.totalRestarts} restarts.
 Time of day: ${getTimeOfDay()}.
+${focusInstruction(focus)}
+${formatAdaptiveContextForPrompt(adaptiveContext)}
 
 Today's progress:
-- Gym workout: ${log?.gymWorkoutDone ? 'COMPLETE' : 'NOT DONE'}
+- Streak-driving workout: ${log?.gymWorkoutDone ? 'COMPLETE' : 'NOT DONE'}
 - Outdoor walk: ${log?.outdoorWalkDone ? 'COMPLETE' : 'NOT DONE'}
-- Water: ${(log?.waterLiters ?? 0).toFixed(1)}L of 3.8L goal ${log?.waterGoalMet ? '(GOAL MET)' : '(BELOW GOAL)'}
 - Reading: ${log?.readingDone ? `COMPLETE — book: ${bookStr}` : 'NOT DONE'}
 - Diet logged: ${dietStr}
 - Mood: ${log?.moodEmoji ? MOOD_LABEL[log.moodEmoji] : 'not logged yet'}
 - Energy: ${log?.energyLevel ?? '?'}/5 | Motivation: ${log?.motivationLevel ?? '?'}/5 | Soreness: ${log?.sorenessLevel ?? '?'}/5
-${tasksRemaining.length > 0 ? `\nTasks still remaining today: ${tasksRemaining.join(', ')}` : '\nAll tasks complete today!'}
+${workoutPending ? '\nWorkout is still pending — streak will not advance until workout is completed.' : '\nWorkout completed — streak requirement is satisfied for today.'}
+${optionalPending.length > 0 ? `\nOptional check-ins pending: ${optionalPending.join(', ')}` : '\nOptional check-ins are all logged.'}
 
-Write a 3-4 sentence coaching insight using the stats above. Prioritize any remaining tasks. End with 🔥.`;
+Write a 3-4 sentence coaching insight using the stats above. Prioritize any remaining tasks and follow the adaptive coaching context. End with 🔥.`;
 }
 
-function buildPatternPrompt(state: AppState, recentLogs: DailyLog[]): string {
+function buildPatternPrompt(
+  state: AppState,
+  recentLogs: DailyLog[],
+  focus: UserFocus,
+  adaptiveContext: AdaptiveCoachingContext
+): string {
   const n = recentLogs.length;
   if (n === 0) return 'Not enough data yet. Keep logging daily and come back in a few days for pattern analysis.';
 
@@ -84,14 +122,12 @@ function buildPatternPrompt(state: AppState, recentLogs: DailyLog[]): string {
   const gymDays       = recentLogs.filter((l) => l.gymWorkoutDone).length;
   const walkDays      = recentLogs.filter((l) => l.outdoorWalkDone).length;
   const readingDays   = recentLogs.filter((l) => l.readingDone).length;
-  const waterGoalDays = recentLogs.filter((l) => l.waterGoalMet).length;
   const dietDays      = recentLogs.filter((l) => {
     const d = l.dietSlots;
     return d.breakfast || d.lunch || d.dinner || d.snacks;
   }).length;
-  const completeDays  = recentLogs.filter((l) => l.allTasksComplete).length;
+  const workoutDays   = recentLogs.filter((l) => l.gymWorkoutDone).length;
 
-  const avgWater      = (recentLogs.reduce((s, l) => s + l.waterLiters, 0) / n).toFixed(1);
   const avgMood       = (recentLogs.reduce((s, l) => s + (moodMap[l.moodEmoji] ?? 3), 0) / n).toFixed(1);
   const avgEnergy     = (recentLogs.reduce((s, l) => s + l.energyLevel, 0) / n).toFixed(1);
   const avgSoreness   = (recentLogs.reduce((s, l) => s + l.sorenessLevel, 0) / n).toFixed(1);
@@ -99,43 +135,41 @@ function buildPatternPrompt(state: AppState, recentLogs: DailyLog[]): string {
 
   // Find weakest and strongest areas
   const rates = [
-    { task: 'Gym', rate: pct(gymDays) },
+    { task: 'Workout', rate: pct(gymDays) },
     { task: 'Walk', rate: pct(walkDays) },
     { task: 'Reading', rate: pct(readingDays) },
-    { task: 'Water', rate: pct(waterGoalDays) },
     { task: 'Diet logging', rate: pct(dietDays) },
   ];
   const weakest = rates.reduce((a, b) => a.rate < b.rate ? a : b);
   const strongest = rates.reduce((a, b) => a.rate > b.rate ? a : b);
 
-  return `Iron75 ${state.mode === '75hard' ? '75 HARD' : 'Workout'} Mode — Performance Analysis: Last ${n} Days.
+  return `GrindOs performance analysis — last ${n} days.
 
-Overall: ${state.streak} current streak, Day ${state.currentDay}/75.
+Overall: ${state.streak} current streak, Day ${state.currentDay}.
+${focusInstruction(focus)}
+${formatAdaptiveContextForPrompt(adaptiveContext)}
 
 Task Completion Rates:
-- Gym: ${gymDays}/${n} days (${pct(gymDays)}%)
+- Workout (streak-driving): ${gymDays}/${n} days (${pct(gymDays)}%)
 - Outdoor walk: ${walkDays}/${n} days (${pct(walkDays)}%)
 - Reading: ${readingDays}/${n} days (${pct(readingDays)}%)
-- Water 3.8L goal: ${waterGoalDays}/${n} days (${pct(waterGoalDays)}%)
 - Diet logging: ${dietDays}/${n} days (${pct(dietDays)}%)
-- All-tasks-complete days: ${completeDays}/${n} (${pct(completeDays)}%)
+- Workout-complete days: ${workoutDays}/${n} (${pct(workoutDays)}%)
 
 Averages:
-- Water: ${avgWater}L/day
 - Mood: ${avgMood}/5 | Energy: ${avgEnergy}/5 | Motivation: ${avgMotivation}/5 | Soreness: ${avgSoreness}/5
 
 Key finding: Weakest area is ${weakest.task} at ${weakest.rate}%. Strongest is ${strongest.task} at ${strongest.rate}%.
 
-Give a 3-4 sentence analysis. Weakest: ${weakest.task} (${weakest.rate}%). Identify why it matters and one concrete action this week.`;
+Give a 3-4 sentence analysis. Weakest: ${weakest.task} (${weakest.rate}%). Identify why it matters and one concrete action this week, aligned to the adaptive coaching context.`;
 }
 
 function buildMotivationPrompt(state: AppState): string {
   const phase =
-    state.currentDay >= 60 ? 'final stretch — under 15 days left' :
-    state.currentDay >= 45 ? 'elite territory — past the 60% mark' :
-    state.currentDay >= 30 ? 'one full month in — momentum phase' :
-    state.currentDay >= 14 ? 'second/third week — the point where most people quit' :
-    'the brutal first two weeks — forging identity';
+    state.currentDay >= 60 ? 'long-run discipline phase' :
+    state.currentDay >= 30 ? 'solid momentum phase' :
+    state.currentDay >= 14 ? 'habit-locking phase' :
+    'early consistency phase';
 
   const streakContext =
     state.streak >= 30 ? `${state.streak}-day streak — they are in the top 5% of attempts.` :
@@ -143,14 +177,10 @@ function buildMotivationPrompt(state: AppState): string {
     state.streak >= 7  ? `${state.streak}-day streak — the habit is forming but still fragile.` :
     `${state.streak}-day streak — every single day counts right now.`;
 
-  const daysLeft = 75 - state.currentDay;
-  const percentComplete = Math.round((state.currentDay / 75) * 100);
-
-  return `Iron75 ${state.mode === '75hard' ? '75 HARD' : 'Workout'} Mode.
-Day ${state.currentDay}/75 — ${percentComplete}% complete — ${daysLeft} days remaining — ${phase}.
+  return `GrindOs motivation coach.
+Day ${state.currentDay} — ${phase}.
 ${streakContext}
 ${state.totalRestarts > 0 ? `They've restarted ${state.totalRestarts} time(s). They know what failure tastes like and chose to come back. That takes more guts than starting fresh.` : "Zero restarts. The streak is clean. They haven't broken once."}
-${state.mode === 'workout' ? `Freeze charges: ${state.freezeCount}/5 remaining.` : ''}
 
 3-sentence locker-room speech. Raw, direct, urgent. Reference their day, streak, and phase. End with 🔥.`;
 }
@@ -164,13 +194,9 @@ function buildRecoveryPrompt(state: AppState, log: DailyLog | null): string {
     soreness >= 3 ? 'MODERATE soreness (3/5) — normal training load' :
     'LOW soreness — body is adapting well';
 
-  const protocol = state.mode === '75hard'
-    ? 'two separate 45-min workouts per day (strict 75 Hard rules)'
-    : 'one intense PPL gym session plus a daily 45-min outdoor walk';
-
-  return `Iron75 athlete doing ${protocol}.
-Current status: Day ${state.currentDay}/75, ${sorenessContext}, energy ${energy}/5.
-Training frequency: 7 days/week, no rest days allowed by the challenge rules.
+  return `GrindOs athlete doing one custom gym session plus a daily walk.
+Current status: Day ${state.currentDay}, ${sorenessContext}, energy ${energy}/5.
+Training frequency: 5-7 days/week depending on recovery.
 
 Give 4 numbered recovery protocols. Each: 1-2 sentences, specific quantities/timing. Tailored to the soreness level above.`;
 }
@@ -184,10 +210,9 @@ function buildNutritionPrompt(state: AppState, log: DailyLog | null): string {
     d?.snacks    ? `Snacks: ${d.snacks}`        : 'Snacks: not logged',
   ].join(' | ');
 
-  return `Iron75 ${state.mode === '75hard' ? '75 HARD' : 'Workout'} Mode — Day ${state.currentDay}/75.
+  return `GrindOs nutrition coach — Day ${state.currentDay}.
 
 Today's actual meals: ${meals}
-Water consumed: ${(log?.waterLiters ?? 0).toFixed(1)}L (goal: 3.8L)
 Workout status: gym ${log?.gymWorkoutDone ? 'done' : 'pending'}, walk ${log?.outdoorWalkDone ? 'done' : 'pending'}
 Energy: ${log?.energyLevel ?? '?'}/5 | Soreness: ${log?.sorenessLevel ?? '?'}/5
 
@@ -234,7 +259,7 @@ function ResponseText({ text }: { text: string }) {
 }
 
 // ── Per-day localStorage cache for coach responses ────────────────────────────
-const COACH_CACHE_PREFIX = 'iron75_coach_';
+const COACH_CACHE_PREFIX = 'grindos_coach_';
 
 function loadCoachCache(today: string): Partial<Record<ChallengeId, string>> {
   if (typeof window === 'undefined') return {};
@@ -250,6 +275,11 @@ function loadCoachCache(today: string): Partial<Record<ChallengeId, string>> {
 function saveCoachCache(id: ChallengeId, text: string, today: string) {
   if (typeof window === 'undefined') return;
   localStorage.setItem(`${COACH_CACHE_PREFIX}${id}_${today}`, text);
+}
+
+function clearCoachCache(id: ChallengeId, today: string) {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(`${COACH_CACHE_PREFIX}${id}_${today}`);
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
@@ -283,43 +313,71 @@ export default function AICoachScreen() {
     if (Object.keys(cached).length > 0) setResponses(cached);
   }, []);
 
-  const handleAsk = useCallback(async (challengeId: ChallengeId) => {
+  const handleAsk = useCallback(async (challengeId: ChallengeId, options?: { forceRefresh?: boolean }) => {
     const currentState = stateRef.current;
     if (!currentState) return;
     setActiveChallenge(challengeId);
+    const forceRefresh = options?.forceRefresh === true;
 
     // Synchronous cache check via ref — no setState side-effect hack needed
-    if (responsesRef.current[challengeId]) return;
-
-    setLoading(challengeId);
-    const currentLog = logRef.current;
-
-    let prompt = '';
-    if (challengeId === 'pattern') {
-      const recentLogs: DailyLog[] = [];
-      const now = new Date();
-      for (let i = 0; i < 10; i++) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const entry = getDailyLog(toLocalDateString(d));
-        if (entry) recentLogs.push(entry);
-        if (recentLogs.length >= 7) break;
-      }
-      prompt = buildPatternPrompt(currentState, recentLogs);
-    } else if (challengeId === 'tip') {
-      prompt = buildCoachPrompt(currentState, currentLog);
-    } else if (challengeId === 'motivation') {
-      prompt = buildMotivationPrompt(currentState);
-    } else if (challengeId === 'recovery') {
-      prompt = buildRecoveryPrompt(currentState, currentLog);
-    } else if (challengeId === 'nutrition') {
-      prompt = buildNutritionPrompt(currentState, currentLog);
+    if (!forceRefresh && responsesRef.current[challengeId]) {
+      recordTelemetryEvent('ai_coach_request_completed', {
+        challengeId,
+        durationMs: 0,
+        fromCache: true,
+      });
+      return;
     }
 
-    const text = await askGemini(prompt, challengeId);
-    setResponses((prev) => ({ ...prev, [challengeId]: text }));
-    saveCoachCache(challengeId, text, getToday());
-    setLoading(null);
+    setLoading(challengeId);
+    const startedAt = Date.now();
+    recordTelemetryEvent('ai_coach_request_started', {
+      challengeId,
+      source: 'ai_coach',
+    });
+
+    try {
+      const currentLog = logRef.current;
+
+      let prompt = '';
+      const focus = getUserFocus();
+      const recentLogs = getRecentLogs();
+      const adaptiveContext = computeAdaptiveCoachingContext({
+        recentLogs,
+        todayLog: currentLog,
+        focus,
+        streak: currentState.streak,
+        currentDay: currentState.currentDay,
+      });
+      if (challengeId === 'pattern') {
+        prompt = buildPatternPrompt(currentState, recentLogs, focus, adaptiveContext);
+      } else if (challengeId === 'tip') {
+        prompt = buildCoachPrompt(currentState, currentLog, focus, adaptiveContext);
+      } else if (challengeId === 'motivation') {
+        prompt = buildMotivationPrompt(currentState);
+      } else if (challengeId === 'recovery') {
+        prompt = buildRecoveryPrompt(currentState, currentLog);
+      } else if (challengeId === 'nutrition') {
+        prompt = buildNutritionPrompt(currentState, currentLog);
+      }
+
+      const text = await askGemini(prompt, challengeId);
+      setResponses((prev) => ({ ...prev, [challengeId]: text }));
+      saveCoachCache(challengeId, text, getToday());
+      recordTelemetryEvent('ai_coach_request_completed', {
+        challengeId,
+        durationMs: Date.now() - startedAt,
+        fromCache: false,
+      });
+    } catch {
+      recordTelemetryEvent('ai_coach_request_failed', {
+        challengeId,
+        durationMs: Date.now() - startedAt,
+        reason: 'request_error',
+      });
+    } finally {
+      setLoading(null);
+    }
   }, []); // no deps needed — all reads go through refs
 
   // Auto-load today's tip on mount
@@ -414,12 +472,14 @@ export default function AICoachScreen() {
             {!isLoading && responseText && (
               <motion.button
                 onClick={() => {
+                  if (!activeChallenge) return;
+                  clearCoachCache(activeChallenge, getToday());
                   setResponses((prev) => {
                     const next = { ...prev };
                     delete next[activeChallenge];
                     return next;
                   });
-                  handleAsk(activeChallenge);
+                  handleAsk(activeChallenge, { forceRefresh: true });
                 }}
                 className="mt-4 text-xs font-semibold"
                 style={{ color: activeCh.color, opacity: 0.65 }}
@@ -441,7 +501,7 @@ export default function AICoachScreen() {
           transition={{ delay: 0.2 }}
         >
           {[
-            { label: 'Challenge Day', value: `${state.currentDay}/75`, color: '#FF6B35' },
+            { label: 'Day', value: `${state.currentDay}`, color: '#FF6B35' },
             { label: 'Streak',        value: `${state.streak} 🔥`,     color: '#FF6B35' },
             { label: 'Longest Streak', value: `${state.longestStreak} days`, color: '#00F5D4' },
             { label: "Today's Mood",  value: log?.moodEmoji ? MOOD_EMOJI[log.moodEmoji] : '—', color: '#FFE66D' },

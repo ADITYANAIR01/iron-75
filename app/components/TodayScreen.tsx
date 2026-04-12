@@ -6,16 +6,21 @@ import {
   saveDailyLog,
   getOrCreateTodayLog,
   checkAllTasksComplete,
+  isDietFullyLogged,
   uploadMultiplePhotos,
   uploadProgressPhoto,
   compressImage,
+  getUserFocus,
+  saveUserFocus,
 } from '../lib/storage';
-import { initializeStreakOnLoad, completeTodayStreak, getDaysToGoal, isPastTenPM } from '../lib/streakLogic';
-import { DailyLog, AppState, MoodEmoji } from '../lib/types';
-import WaterBottle from './WaterBottle';
+import { initializeStreakOnLoad, completeTodayStreak, isPastTenPM } from '../lib/streakLogic';
+import { getProgressionState, saveProgressionState } from '../lib/progressionStorage';
+import { applyProgressionUpdate, createDefaultProgressionState, DAILY_XP_CAP, getLevelProgress } from '../lib/progressionLogic';
+import { DailyLog, AppState, MoodEmoji, UserFocus, ProgressionState, ProgressionSource } from '../lib/types';
 import CelebrationOverlay from './CelebrationOverlay';
 import { getDailyTip, getMotivationalQuote, fetchAIQuote, getTipCategory } from '../lib/aiTips';
 import { askGemini } from '../lib/gemini';
+import { recordTelemetryEvent } from '../lib/telemetry';
 
 const MOODS: { value: MoodEmoji; emoji: string; label: string; color: string }[] = [
   { value: 'great', emoji: '😄', label: 'Great', color: '#00F5D4' },
@@ -167,55 +172,70 @@ function TaskCard({ icon, label, done, accentColor, onToggle, expandable, expand
   );
 }
 
-function LabeledSlider({
-  label, emoji, value, onChange, color,
-}: {
-  label: string; emoji: string; value: number; onChange: (v: number) => void; color: string;
-}) {
+interface QuickLogActionProps {
+  icon: string;
+  label: string;
+  done: boolean;
+  accentColor: string;
+  onClick: () => void;
+}
+
+function QuickLogAction({ icon, label, done, accentColor, onClick }: QuickLogActionProps) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex justify-between text-xs">
-        <span style={{ color: '#94A3B8' }}>{emoji} {label}</span>
-        <div className="flex gap-1 items-center">
-          {[1, 2, 3, 4, 5].map((v) => (
-            <div
-              key={v}
-              className="w-2 h-2 rounded-full transition-all duration-200"
-              style={{
-                background: v <= value ? color : '#141432',
-                boxShadow: v <= value ? `0 0 6px ${color}60` : 'none',
-              }}
-            />
-          ))}
-          <span className="ml-1.5 font-bold" style={{ color }}>{value}/5</span>
-        </div>
-      </div>
-      <input
-        type="range" min={1} max={5} value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full iron75-slider"
-        style={{ accentColor: color }}
-      />
-    </div>
+    <motion.button
+      whileTap={{ scale: 0.95 }}
+      onClick={onClick}
+      className="flex flex-col items-center justify-center gap-1.5 rounded-xl px-2 py-3 text-center"
+      style={{
+        background: done ? `${accentColor}1A` : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${done ? `${accentColor}55` : 'rgba(255,255,255,0.08)'}`,
+        boxShadow: done ? `0 0 16px ${accentColor}22` : 'none',
+      }}
+    >
+      <span className="text-lg">{icon}</span>
+      <span className="text-[11px] font-bold leading-tight" style={{ color: done ? accentColor : '#CBD5E1' }}>
+        {label}
+      </span>
+      <span className="text-[10px] font-semibold" style={{ color: done ? accentColor : '#64748B' }}>
+        {done ? 'Done' : 'Tap'}
+      </span>
+    </motion.button>
   );
 }
+
+interface MissionItem {
+  id: 'workout' | 'walk' | 'diet' | 'mood' | 'reading';
+  label: string;
+  icon: string;
+  done: boolean;
+}
+
+const FOCUS_ORDER: Record<UserFocus, MissionItem['id'][]> = {
+  gym_first: ['workout', 'diet', 'walk', 'reading', 'mood'],
+  habit_first: ['reading', 'mood', 'diet', 'walk', 'workout'],
+  balanced: ['workout', 'walk', 'diet', 'mood', 'reading'],
+};
 
 export default function TodayScreen() {
   const [log, setLog] = useState<DailyLog | null>(null);
   const [appState, setAppState] = useState<AppState>({
-    streak: 0, currentDay: 1, startDate: '', longestStreak: 0, totalRestarts: 0, mode: 'workout', freezeCount: 3,
+    streak: 0, currentDay: 1, startDate: '', longestStreak: 0, totalRestarts: 0,
   });
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const [showTenPMWarning, setShowTenPMWarning] = useState(false);
   const [tipDismissed, setTipDismissed] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [userFocus, setUserFocus] = useState<UserFocus>('balanced');
+  const [showFocusOnboarding, setShowFocusOnboarding] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [aiQuote, setAiQuote] = useState<{ quote: string; author: string } | null>(null);
+  const [progression, setProgression] = useState<ProgressionState>(() => createDefaultProgressionState(''));
   const celebrationFiredRef = useRef(false);
   // Monotonically increasing ID — incremented on every new photo upload and on
   // removal so we can detect and discard results from stale async uploads.
   const photoSessionRef = useRef(0);
+  const missionTelemetryKeyRef = useRef('');
 
   useEffect(() => {
     setMounted(true);
@@ -223,7 +243,11 @@ export default function TodayScreen() {
     setAppState(state);
     const todayLog = getOrCreateTodayLog();
     setLog(todayLog);
+    setProgression(getProgressionState(todayLog.date));
     celebrationFiredRef.current = todayLog.celebrationShown || false;
+    const focus = getUserFocus();
+    setUserFocus(focus);
+    setShowFocusOnboarding(localStorage.getItem('iron75_user_focus') === null);
   }, []);
 
   // Fetch AI-powered quote (shows static fallback instantly, upgrades async)
@@ -231,6 +255,59 @@ export default function TodayScreen() {
     if (!mounted || appState.currentDay < 1) return;
     fetchAIQuote(appState.currentDay, askGemini).then(setAiQuote).catch(() => {});
   }, [mounted, appState.currentDay]);
+
+  useEffect(() => {
+    if (!mounted || !log) return;
+
+    const dietDone = isDietFullyLogged(log.dietSlots);
+    const completedSources: ProgressionSource[] = [];
+    if (log.gymWorkoutDone) completedSources.push('workout');
+    if (log.outdoorWalkDone) completedSources.push('walk');
+    if (dietDone) completedSources.push('diet');
+    if (log.moodEmoji !== '') completedSources.push('mood');
+    if (log.readingDone) completedSources.push('reading');
+
+    const missionDoneById: Record<MissionItem['id'], boolean> = {
+      workout: log.gymWorkoutDone,
+      walk: log.outdoorWalkDone,
+      diet: dietDone,
+      mood: log.moodEmoji !== '',
+      reading: log.readingDone,
+    };
+    const missionPathIds = FOCUS_ORDER[userFocus].slice(0, 3);
+    const missionComplete = missionPathIds.every((id) => missionDoneById[id]);
+    const missionTelemetryKey = `${log.date}:${userFocus}`;
+
+    if (missionComplete && missionTelemetryKeyRef.current !== missionTelemetryKey) {
+      missionTelemetryKeyRef.current = missionTelemetryKey;
+      recordTelemetryEvent('mission_path_completed', {
+        date: log.date,
+        focus: userFocus,
+        path: missionPathIds,
+      });
+    } else if (!missionComplete && missionTelemetryKeyRef.current === missionTelemetryKey) {
+      missionTelemetryKeyRef.current = '';
+    }
+
+    const currentProgression = getProgressionState(log.date);
+    const { state: nextProgression } = applyProgressionUpdate(currentProgression, {
+      date: log.date,
+      completedSources,
+      missionCompleted: missionComplete,
+    });
+
+    const progressionChanged =
+      nextProgression.totalXp !== currentProgression.totalXp ||
+      nextProgression.level !== currentProgression.level ||
+      nextProgression.daily.date !== currentProgression.daily.date ||
+      nextProgression.daily.xpGained !== currentProgression.daily.xpGained ||
+      nextProgression.daily.claimedSources.join('|') !== currentProgression.daily.claimedSources.join('|');
+
+    if (progressionChanged) {
+      saveProgressionState(nextProgression);
+    }
+    setProgression(nextProgression);
+  }, [mounted, log, userFocus]);
 
   const updateLog = useCallback(
     (updater: (prev: DailyLog) => DailyLog) => {
@@ -248,7 +325,7 @@ export default function TodayScreen() {
 
   useEffect(() => {
     if (!log || !mounted) return;
-    if (log.allTasksComplete && !celebrationFiredRef.current) {
+    if (log.gymWorkoutDone && !celebrationFiredRef.current) {
       celebrationFiredRef.current = true;
       setShowCelebration(true);
       // Use functional updater to avoid stale-closure over appState.
@@ -256,11 +333,11 @@ export default function TodayScreen() {
       updateLog((prev) => ({ ...prev, celebrationShown: true }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [log?.allTasksComplete, mounted]);
+  }, [log?.gymWorkoutDone, mounted]);
 
   useEffect(() => {
     const check = () => {
-      if (isPastTenPM() && log && !log.allTasksComplete) {
+      if (isPastTenPM() && log && !log.gymWorkoutDone) {
         setShowTenPMWarning(true);
       } else {
         setShowTenPMWarning(false);
@@ -273,21 +350,24 @@ export default function TodayScreen() {
 
   const toggleGymWorkout = () => updateLog((p) => ({ ...p, gymWorkoutDone: !p.gymWorkoutDone }));
   const toggleOutdoorWalk = () => updateLog((p) => ({ ...p, outdoorWalkDone: !p.outdoorWalkDone }));
-  const addWater = () => {
-    updateLog((p) => {
-      const newLiters = Math.min(p.waterLiters + 0.5, 9.9);
-      return { ...p, waterLiters: newLiters, waterGoalMet: newLiters >= 3.8 };
-    });
-  };
   const updateDiet = (slot: keyof DailyLog['dietSlots'], value: string) => {
     updateLog((p) => ({ ...p, dietSlots: { ...p.dietSlots, [slot]: value } }));
   };
   const setMood = (emoji: MoodEmoji) => updateLog((p) => ({ ...p, moodEmoji: emoji }));
-  const setSlider = (field: 'energyLevel' | 'motivationLevel' | 'sorenessLevel', value: number) => {
-    updateLog((p) => ({ ...p, [field]: value }));
-  };
   const toggleReading = () => updateLog((p) => ({ ...p, readingDone: !p.readingDone }));
   const setBookTitle = (title: string) => updateLog((p) => ({ ...p, readingBook: title }));
+  const trackQuickLogTap = (
+    action: 'walk' | 'reading' | 'mood',
+    nextDone: boolean,
+    selectedMood?: Exclude<MoodEmoji, ''>
+  ) => {
+    recordTelemetryEvent('quick_log_tapped', {
+      action,
+      source: 'quick_log',
+      nextDone,
+      selectedMood,
+    });
+  };
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -417,20 +497,28 @@ export default function TodayScreen() {
     );
   }
 
+  const dietComplete = isDietFullyLogged(log.dietSlots);
   const completedCount = [
     log.gymWorkoutDone,
     log.outdoorWalkDone,
-    log.waterGoalMet,
-    log.dietSlots.breakfast !== '' || log.dietSlots.lunch !== '' || log.dietSlots.dinner !== '' || log.dietSlots.snacks !== '',
+    dietComplete,
     log.moodEmoji !== '',
     log.readingDone,
   ].filter(Boolean).length;
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
-  const daysToGoal = getDaysToGoal();
   const quote = aiQuote ?? getMotivationalQuote(appState.currentDay);
   const tipCategory = getTipCategory(appState.currentDay);
+  const levelProgress = getLevelProgress(progression.totalXp);
+  const todayXpGained = progression.daily.date === log.date ? progression.daily.xpGained : 0;
+  const reachedDailyCap = todayXpGained >= DAILY_XP_CAP;
+  const quickLogDoneCount = [
+    log.outdoorWalkDone,
+    log.readingDone,
+    log.moodEmoji !== '',
+  ].filter(Boolean).length;
+  const selectedMood = MOODS.find((m) => m.value === log.moodEmoji);
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-5 pb-28">
@@ -457,7 +545,7 @@ export default function TodayScreen() {
           >
             <motion.span className="text-xl" animate={{ scale: [1, 1.2, 1] }}
               transition={{ duration: 1, repeat: Infinity }}>⚠️</motion.span>
-            <span>Clock is ticking! <span className="font-bold text-white">{6 - completedCount} tasks</span> remaining before midnight.</span>
+            <span>Clock is ticking! <span className="font-bold text-white">Workout still pending</span> before midnight.</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -517,7 +605,7 @@ export default function TodayScreen() {
             <div className="flex items-center gap-3 mt-2">
               <div className="flex items-center gap-1.5 text-sm" style={{ color: '#00F5D4' }}>
                 <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#00F5D4', boxShadow: '0 0 6px #00F5D4' }} />
-                Day {appState.currentDay} of 75
+                Day {appState.currentDay}
               </div>
               <div className="text-xs" style={{ color: '#64748B' }}>|</div>
               <div className="text-xs" style={{ color: '#A855F7' }}>
@@ -525,27 +613,15 @@ export default function TodayScreen() {
               </div>
             </div>
 
-            {/* Mode indicator */}
-            {appState.mode === 'workout' ? (
-              <div className="flex items-center gap-1.5 mt-2 text-xs font-semibold"
-                style={{ color: appState.freezeCount > 0 ? '#00F5D4' : '#FF4757' }}>
-                🧊 {appState.freezeCount} freeze{appState.freezeCount !== 1 ? 's' : ''} remaining
-                {appState.freezeCount === 0 && (
-                  <span className="ml-1" style={{ color: '#FF4757' }}>— next miss resets streak</span>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 mt-2 text-xs font-bold"
-                style={{ color: '#A855F7' }}>
-                🔒 75 Hard — ⚠️ no freezes, no mercy
-              </div>
-            )}
+            <div className="flex items-center gap-1.5 mt-2 text-xs font-semibold" style={{ color: '#64748B' }}>
+              ✅ Missed streak days reset to Day 1
+            </div>
           </div>
 
           <div className="flex flex-col items-center gap-2">
-            <ProgressRing progress={completedCount / 6} />
-            <span className="text-[10px] font-bold" style={{ color: completedCount === 6 ? '#00F5D4' : '#64748B' }}>
-              {completedCount}/6 done
+            <ProgressRing progress={completedCount / 5} />
+            <span className="text-[10px] font-bold" style={{ color: completedCount === 5 ? '#00F5D4' : '#64748B' }}>
+              {completedCount}/5 habits
             </span>
           </div>
         </div>
@@ -553,20 +629,10 @@ export default function TodayScreen() {
         {/* Date & goal countdown */}
         <div className="flex items-center justify-between mt-4">
           <span className="text-xs" style={{ color: '#64748B' }}>{dateStr}</span>
-          {daysToGoal > 0 && (
-            <motion.div
-              className="text-[10px] px-2.5 py-1 rounded-full font-bold"
-              style={{
-                background: 'linear-gradient(135deg, rgba(255,230,109,0.15), rgba(255,107,53,0.1))',
-                color: '#FFE66D',
-                border: '1px solid rgba(255,230,109,0.25)',
-              }}
-              animate={{ scale: [1, 1.02, 1] }}
-              transition={{ duration: 3, repeat: Infinity }}
-            >
-              🎯 {daysToGoal}d to goal
-            </motion.div>
-          )}
+          <span className="text-[10px] px-2.5 py-1 rounded-full font-bold"
+            style={{ background: 'rgba(255,255,255,0.06)', color: '#94A3B8', border: '1px solid rgba(255,255,255,0.08)' }}>
+            📈 Keep the streak alive
+          </span>
         </div>
 
         {/* Animated progress bar */}
@@ -575,18 +641,163 @@ export default function TodayScreen() {
             <motion.div
               className="h-full rounded-full"
               style={{
-                background: completedCount === 6
+                background: completedCount === 5
                   ? 'linear-gradient(90deg, #00F5D4, #38BDF8)'
                   : 'linear-gradient(90deg, #FF6B35, #A855F7, #FFE66D)',
                 backgroundSize: '200% 100%',
               }}
               animate={{
-                width: `${(completedCount / 6) * 100}%`,
+                width: `${(completedCount / 5) * 100}%`,
               }}
               transition={{
                 width: { type: 'spring', stiffness: 80, damping: 15 },
               }}
             />
+          </div>
+        </div>
+      </motion.div>
+
+      <motion.div
+        className="rounded-2xl p-4"
+        style={{
+          background: 'linear-gradient(135deg, rgba(0,245,212,0.08), rgba(56,189,248,0.06))',
+          border: '1px solid rgba(0,245,212,0.2)',
+        }}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-black uppercase tracking-wider" style={{ color: '#00F5D4' }}>
+            Level {levelProgress.level}
+          </div>
+          <div className="text-[10px] font-bold" style={{ color: '#38BDF8' }}>
+            +{todayXpGained} XP today
+          </div>
+        </div>
+
+        <div className="text-[11px] mt-1" style={{ color: '#94A3B8' }}>
+          {levelProgress.xpIntoLevel}/{levelProgress.xpForNextLevel} XP • {levelProgress.xpToNextLevel} XP to Level {levelProgress.level + 1}
+        </div>
+
+        <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)' }}>
+          <motion.div
+            className="h-full rounded-full"
+            style={{ background: 'linear-gradient(90deg, #00F5D4, #38BDF8)' }}
+            animate={{ width: `${Math.max(0, Math.min(1, levelProgress.progress)) * 100}%` }}
+            transition={{ type: 'spring', stiffness: 95, damping: 18 }}
+          />
+        </div>
+
+        <div className="text-[10px] mt-2" style={{ color: reachedDailyCap ? '#FFE66D' : '#64748B' }}>
+          {reachedDailyCap
+            ? `Daily XP cap (${DAILY_XP_CAP}) reached — recovery still counts, no penalties.`
+            : `Daily XP cap: ${DAILY_XP_CAP}. XP is never removed for unchecked tasks.`}
+        </div>
+      </motion.div>
+
+      <motion.div
+        className="rounded-2xl p-4"
+        style={{
+          background: 'linear-gradient(135deg, rgba(255,107,53,0.08), rgba(56,189,248,0.06))',
+          border: '1px solid rgba(255,255,255,0.12)',
+        }}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-xs font-black uppercase tracking-wider" style={{ color: '#F8FAFC' }}>
+              Quick log
+            </div>
+            <p className="text-[11px] mt-1" style={{ color: '#94A3B8' }}>
+              One tap for your most frequent check-ins.
+            </p>
+          </div>
+          <span
+            className="text-[10px] px-2 py-1 rounded-full font-bold"
+            style={{
+              background: quickLogDoneCount === 3 ? 'rgba(0,245,212,0.15)' : 'rgba(255,255,255,0.06)',
+              color: quickLogDoneCount === 3 ? '#00F5D4' : '#94A3B8',
+              border: `1px solid ${quickLogDoneCount === 3 ? 'rgba(0,245,212,0.35)' : 'rgba(255,255,255,0.12)'}`,
+            }}
+          >
+            {quickLogDoneCount}/3
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <QuickLogAction
+            icon="🚶"
+            label="Walk"
+            done={log.outdoorWalkDone}
+            accentColor="#A855F7"
+            onClick={() => {
+              trackQuickLogTap('walk', !log.outdoorWalkDone);
+              toggleOutdoorWalk();
+            }}
+          />
+          <QuickLogAction
+            icon="📚"
+            label="Reading"
+            done={log.readingDone}
+            accentColor="#38BDF8"
+            onClick={() => {
+              trackQuickLogTap('reading', !log.readingDone);
+              toggleReading();
+            }}
+          />
+        </div>
+
+        <div className="mt-2">
+          <input
+            type="text"
+            placeholder="Book title (optional)"
+            value={log.readingBook}
+            onChange={(e) => setBookTitle(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#F1F5F9' }}
+          />
+        </div>
+
+        <div
+          className="mt-3 pt-3"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: '#FF6B9D' }}>
+              Quick mood
+            </div>
+            <span className="text-[10px] font-semibold" style={{ color: selectedMood ? selectedMood.color : '#64748B' }}>
+              {selectedMood ? `${selectedMood.emoji} ${selectedMood.label}` : 'Not logged'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-5 gap-2 mt-2">
+            {MOODS.map((mood) => {
+              const isSelected = log.moodEmoji === mood.value;
+              return (
+                <motion.button
+                  key={mood.value}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => {
+                    trackQuickLogTap('mood', true, mood.value === '' ? undefined : mood.value);
+                    setMood(mood.value);
+                  }}
+                  className="rounded-xl px-1 py-2 flex flex-col items-center gap-1"
+                  style={{
+                    background: isSelected ? `${mood.color}22` : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${isSelected ? mood.color : 'rgba(255,255,255,0.08)'}`,
+                    boxShadow: isSelected ? `0 0 14px ${mood.color}20` : 'none',
+                  }}
+                  aria-label={`Set mood to ${mood.label}`}
+                >
+                  <span className="text-lg leading-none">{mood.emoji}</span>
+                  <span className="text-[9px] font-semibold" style={{ color: isSelected ? mood.color : '#64748B' }}>
+                    {mood.label}
+                  </span>
+                </motion.button>
+              );
+            })}
           </div>
         </div>
       </motion.div>
@@ -608,40 +819,66 @@ export default function TodayScreen() {
         <p className="text-[10px] mt-1 font-semibold" style={{ color: '#A855F7' }}>— {quote.author}</p>
       </motion.div>
 
+      <AnimatePresence>
+        {showFocusOnboarding && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="rounded-2xl p-4"
+            style={{
+              background: 'linear-gradient(135deg, rgba(0,245,212,0.08), rgba(56,189,248,0.05))',
+              border: '1px solid rgba(0,245,212,0.25)',
+            }}
+          >
+            <div className="text-xs font-black uppercase tracking-wider" style={{ color: '#00F5D4' }}>
+              Quick setup
+            </div>
+            <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>
+              Pick your focus so daily progression prioritizes what matters most.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+              {([
+                { value: 'gym_first', label: 'Gym-first', emoji: '🏋️' },
+                { value: 'habit_first', label: 'Habit-first', emoji: '🧠' },
+                { value: 'balanced', label: 'Balanced', emoji: '⚖️' },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => {
+                    setUserFocus(option.value);
+                    saveUserFocus(option.value);
+                    setShowFocusOnboarding(false);
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-bold transition-all"
+                  style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${userFocus === option.value ? '#00F5D4' : 'rgba(255,255,255,0.08)'}`,
+                    color: userFocus === option.value ? '#00F5D4' : '#94A3B8',
+                  }}
+                >
+                  {option.emoji} {option.label}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Task Cards ────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3">
         <TaskCard
-          icon="🏋️" label="Gym Workout (PPL Session)" done={log.gymWorkoutDone}
+          icon="🏋️" label="Gym Workout Session" done={log.gymWorkoutDone}
           accentColor="#FF6B35" onToggle={toggleGymWorkout}
           subtitle={log.gymWorkoutDone ? 'Completed — great work!' : 'Tap to mark done'}
         />
 
         <TaskCard
-          icon="🚶" label="Outdoor Walk / Activity" done={log.outdoorWalkDone}
-          accentColor="#A855F7" onToggle={toggleOutdoorWalk}
-          subtitle={log.outdoorWalkDone ? 'Walk done — fresh air!' : '45 min minimum'}
-        />
-
-        <TaskCard
-          icon="💧" label={log.waterGoalMet ? `Water — ✅ ${log.waterLiters.toFixed(1)}L` : `Water — ${log.waterLiters.toFixed(1)}L / 3.8L`}
-          done={log.waterGoalMet} accentColor="#00F5D4"
-          expandable expanded={expandedCard === 'water'}
-          onToggleExpand={() => toggleCard('water')}
-        >
-          <div className="flex flex-col items-center gap-2 py-4">
-            <WaterBottle liters={log.waterLiters} onAdd={addWater} />
-          </div>
-        </TaskCard>
-
-        <TaskCard
-          icon="🥗" label="Diet Diary" done={
-            log.dietSlots.breakfast !== '' || log.dietSlots.lunch !== '' ||
-            log.dietSlots.dinner !== '' || log.dietSlots.snacks !== ''
-          }
+          icon="🥗" label="Diet Diary" done={dietComplete}
           accentColor="#FFE66D"
           expandable expanded={expandedCard === 'diet'}
           onToggleExpand={() => toggleCard('diet')}
-          subtitle="Log your 4 meals"
+          subtitle="Log all 4 meals (use - if skipped)"
         >
           <div className="flex flex-col gap-2.5">
             {([
@@ -668,78 +905,6 @@ export default function TodayScreen() {
                 )}
               </div>
             ))}
-          </div>
-        </TaskCard>
-
-        <TaskCard
-          icon="😊" label={log.moodEmoji ? `Mood: ${MOODS.find(m => m.value === log.moodEmoji)?.emoji ?? ''} ${log.moodEmoji}` : 'Mood & Energy Log'}
-          done={log.moodEmoji !== ''} accentColor="#FF6B9D"
-          expandable expanded={expandedCard === 'mood'}
-          onToggleExpand={() => toggleCard('mood')}
-          subtitle="How are you feeling today?"
-        >
-          <div className="flex flex-col gap-5">
-            {/* Mood selector */}
-            <div className="flex gap-2 justify-center">
-              {MOODS.map((m) => {
-                const isSelected = log.moodEmoji === m.value;
-                return (
-                  <motion.button
-                    key={m.value}
-                    onClick={() => setMood(m.value)}
-                    whileTap={{ scale: 0.85 }}
-                    className="flex flex-col items-center gap-1 px-3 py-2.5 rounded-2xl transition-all"
-                    style={{
-                      background: isSelected ? `${m.color}20` : 'rgba(255,255,255,0.03)',
-                      border: `2px solid ${isSelected ? m.color : 'transparent'}`,
-                      boxShadow: isSelected ? `0 0 16px ${m.color}25` : 'none',
-                    }}
-                  >
-                    <motion.span className="text-3xl" animate={isSelected ? { scale: [1, 1.2, 1] } : {}}>{m.emoji}</motion.span>
-                    <span className="text-[10px] font-semibold" style={{ color: isSelected ? m.color : '#64748B' }}>{m.label}</span>
-                  </motion.button>
-                );
-              })}
-            </div>
-
-            {/* Sliders */}
-            <div className="flex flex-col gap-3">
-              <LabeledSlider label="Energy" emoji="⚡" value={log.energyLevel} onChange={(v) => setSlider('energyLevel', v)} color="#FF6B35" />
-              <LabeledSlider label="Motivation" emoji="🔥" value={log.motivationLevel} onChange={(v) => setSlider('motivationLevel', v)} color="#A855F7" />
-              <LabeledSlider label="Soreness" emoji="💪" value={log.sorenessLevel} onChange={(v) => setSlider('sorenessLevel', v)} color="#FF4757" />
-            </div>
-          </div>
-        </TaskCard>
-
-        <TaskCard
-          icon="📖" label="10 Pages Read" done={log.readingDone}
-          accentColor="#38BDF8"
-          expandable expanded={expandedCard === 'reading'}
-          onToggleExpand={() => toggleCard('reading')}
-          subtitle={log.readingDone ? 'Knowledge gained!' : 'Non-fiction, 10 pages minimum'}
-        >
-          <div className="flex flex-col gap-3">
-            <input
-              type="text" placeholder="What are you reading? (optional)"
-              value={log.readingBook}
-              onChange={(e) => setBookTitle(e.target.value)}
-              className="px-3 py-2.5 rounded-xl text-sm outline-none"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#F1F5F9' }}
-            />
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={toggleReading}
-              className="w-full py-3 rounded-xl font-bold text-sm"
-              style={{
-                background: log.readingDone
-                  ? 'linear-gradient(135deg, rgba(56,189,248,0.15), rgba(0,245,212,0.1))'
-                  : 'linear-gradient(135deg, rgba(56,189,248,0.1), rgba(56,189,248,0.05))',
-                border: `1px solid ${log.readingDone ? '#38BDF8' : 'rgba(56,189,248,0.3)'}`,
-                color: log.readingDone ? '#38BDF8' : '#94A3B8',
-              }}
-            >
-              {log.readingDone ? '✅ 10 Pages Done!' : '📚 Mark as Read'}
-            </motion.button>
           </div>
         </TaskCard>
       </div>
@@ -913,7 +1078,6 @@ export default function TodayScreen() {
             <p className="text-sm leading-relaxed" style={{ color: '#CBD5E1' }}>
               {getDailyTip(appState.currentDay, {
                 streak: appState.streak,
-                waterLiters: log.waterLiters,
                 energyLevel: log.energyLevel,
                 sorenessLevel: log.sorenessLevel,
                 moodEmoji: log.moodEmoji,

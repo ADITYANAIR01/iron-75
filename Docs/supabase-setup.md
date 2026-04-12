@@ -2,6 +2,8 @@
 
 Complete step-by-step guide to configure Supabase for authentication, database, and photo storage with the Iron75 app.
 
+For a one-shot fresh setup script, use `Docs/supabase.sql`.
+
 ---
 
 ## Table of Contents
@@ -19,7 +21,9 @@ Complete step-by-step guide to configure Supabase for authentication, database, 
 11. [Troubleshooting](#11-troubleshooting)
 12. [Migration: Custom Workouts & Wrapped Columns](#12-migration-add-custom-workouts--wrapped-sync-columns)
 13. [Migration: Dual-Mode System Columns](#13-migration-add-dual-mode-system-columns)
-14. [Complete Fresh Setup (Single Copy-Paste)](#14-complete-fresh-setup-single-copy-paste)
+14. [Migration: Workout Session Upsert Safety](#14-migration-workout-session-upsert-safety)
+15. [Migration: Freeze Milestone Rules](#15-migration-freeze-milestone-rules)
+16. [Complete Fresh Setup (Single Copy-Paste)](#16-complete-fresh-setup-single-copy-paste)
 
 ---
 
@@ -61,6 +65,8 @@ Complete step-by-step guide to configure Supabase for authentication, database, 
    NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    ```
 
+   Both variables are required. If either one is missing or empty, the app treats Supabase as unconfigured and returns a descriptive config error for auth/cloud calls.
+
 3. Restart your dev server after changes:
 
    ```bash
@@ -97,7 +103,7 @@ CREATE TABLE IF NOT EXISTS public.app_state (
   longest_streak INTEGER DEFAULT 0,
   total_restarts INTEGER DEFAULT 0,
   mode TEXT NOT NULL DEFAULT 'workout' CHECK (mode IN ('workout', '75hard')),
-  freeze_count INTEGER NOT NULL DEFAULT 3 CHECK (freeze_count >= 0 AND freeze_count <= 5),
+  freeze_count INTEGER NOT NULL DEFAULT 3 CHECK (freeze_count >= 0),
   custom_sessions JSONB DEFAULT '[]',
   day_assignments JSONB DEFAULT '{}',
   default_session_overrides JSONB DEFAULT '{}',
@@ -114,8 +120,6 @@ CREATE TABLE IF NOT EXISTS public.daily_logs (
   date DATE NOT NULL,
   gym_workout_done BOOLEAN DEFAULT FALSE,
   outdoor_walk_done BOOLEAN DEFAULT FALSE,
-  water_liters NUMERIC(4,2) DEFAULT 0,
-  water_goal_met BOOLEAN DEFAULT FALSE,
   reading_done BOOLEAN DEFAULT FALSE,
   reading_book TEXT DEFAULT '',
   diet_slots JSONB DEFAULT '{"breakfast":"","lunch":"","dinner":"","snacks":""}',
@@ -133,7 +137,7 @@ CREATE TABLE IF NOT EXISTS public.daily_logs (
   UNIQUE(user_id, date)
 );
 
--- 4. Workout sessions (optional — for future PPL tracking)
+-- 4. Workout sessions (optional — for custom routine logging)
 CREATE TABLE IF NOT EXISTS public.workout_sessions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -144,7 +148,8 @@ CREATE TABLE IF NOT EXISTS public.workout_sessions (
   duration_minutes INTEGER DEFAULT 0,
   completed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, date, session_type)
 );
 
 -- 5. Indexes for fast lookups
@@ -404,6 +409,11 @@ CREATE TRIGGER on_auth_user_created
 - Double-check `.env.local` values match the Supabase dashboard exactly.
 - Make sure you restarted the dev server after editing `.env.local`.
 
+### "Supabase is not configured" error
+
+- Confirm `.env.local` contains both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- Ensure values are not empty strings and restart the app after updating env vars.
+
 ### Auth redirect loops
 
 - Verify **Site URL** and **Redirect URLs** in **Authentication → URL Configuration**.
@@ -443,7 +453,7 @@ ALTER TABLE public.app_state
   ADD COLUMN IF NOT EXISTS mode        TEXT    NOT NULL DEFAULT 'workout'
                                         CHECK (mode IN ('workout', '75hard')),
   ADD COLUMN IF NOT EXISTS freeze_count INTEGER NOT NULL DEFAULT 3
-                                        CHECK (freeze_count >= 0 AND freeze_count <= 5);
+                                        CHECK (freeze_count >= 0);
 
 -- Verify
 SELECT column_name, data_type, column_default
@@ -458,7 +468,77 @@ WHERE table_schema = 'public'
 | Column | Type | Default | Description |
 | --- | --- | --- | --- |
 | `mode` | `text` | `'workout'` | Active mode: `'workout'` or `'75hard'` |
-| `freeze_count` | `integer` | `3` | Streak freezes remaining (0–5, workout mode only) |
+| `freeze_count` | `integer` | `3` | Streak freezes remaining (non-negative, workout mode only) |
+
+---
+
+## 14. Migration: Workout Session Upsert Safety
+
+If you created `workout_sessions` before adding a unique key on `(user_id, date, session_type)`, run this migration so cloud upserts are deterministic and duplicate rows cannot be created.
+
+```sql
+-- 1) Remove duplicate rows, keeping the latest updated_at per (user_id, date, session_type)
+DELETE FROM public.workout_sessions ws
+USING public.workout_sessions newer
+WHERE ws.user_id = newer.user_id
+  AND ws.date = newer.date
+  AND ws.session_type = newer.session_type
+  AND (
+    ws.updated_at < newer.updated_at
+    OR (ws.updated_at = newer.updated_at AND ws.id < newer.id)
+  );
+
+-- 2) Add unique constraint required for ON CONFLICT upsert
+ALTER TABLE public.workout_sessions
+  ADD CONSTRAINT workout_sessions_user_date_session_unique
+  UNIQUE (user_id, date, session_type);
+```
+
+---
+
+## 15. Migration: Freeze Milestone Rules
+
+If your `app_state.freeze_count` still has the legacy upper bound (`<= 5`), run this migration so workout mode can reward **+2 freezes** at streak milestones **10 / 20 / 40 / 60**.
+
+```sql
+DO $$
+DECLARE
+  c RECORD;
+BEGIN
+  FOR c IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'public.app_state'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%freeze_count%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.app_state DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.app_state'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%mode IN (''workout'', ''75hard'')%'
+  ) THEN
+    ALTER TABLE public.app_state
+      ADD CONSTRAINT app_state_mode_check
+      CHECK (mode IN ('workout', '75hard'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.app_state'::regclass
+      AND conname = 'app_state_freeze_count_nonnegative_check'
+  ) THEN
+    ALTER TABLE public.app_state
+      ADD CONSTRAINT app_state_freeze_count_nonnegative_check
+      CHECK (freeze_count >= 0);
+  END IF;
+END $$;
+```
 
 ---
 
@@ -470,8 +550,76 @@ WHERE table_schema = 'public'
 
 ### RLS policy errors (403)
 
-- Make sure all policies use `auth.uid()` correctly.
-- Check that the user is actually authenticated before making DB calls.
+If you see browser errors like:
+
+- `new row violates row-level security policy for table "app_state"`
+- `new row violates row-level security policy for table "daily_logs"`
+
+run this policy reset in the SQL Editor:
+
+```sql
+DROP POLICY IF EXISTS "Users can insert own app_state" ON public.app_state;
+DROP POLICY IF EXISTS "Users can update own app_state" ON public.app_state;
+DROP POLICY IF EXISTS "Users can insert own daily_logs" ON public.daily_logs;
+DROP POLICY IF EXISTS "Users can update own daily_logs" ON public.daily_logs;
+DROP POLICY IF EXISTS "Users can insert own workout_sessions" ON public.workout_sessions;
+DROP POLICY IF EXISTS "Users can update own workout_sessions" ON public.workout_sessions;
+
+CREATE POLICY "Users can insert own app_state"
+  ON public.app_state FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own app_state"
+  ON public.app_state FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own daily_logs"
+  ON public.daily_logs FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own daily_logs"
+  ON public.daily_logs FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own workout_sessions"
+  ON public.workout_sessions FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own workout_sessions"
+  ON public.workout_sessions FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+```
+
+Also confirm the unique keys required by app upserts still exist:
+
+```sql
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'app_state_user_unique'
+  ) THEN
+    ALTER TABLE public.app_state
+      ADD CONSTRAINT app_state_user_unique UNIQUE (user_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'daily_logs_user_date_unique'
+  ) THEN
+    ALTER TABLE public.daily_logs
+      ADD CONSTRAINT daily_logs_user_date_unique UNIQUE (user_id, date);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'workout_sessions_user_date_type_unique'
+  ) THEN
+    ALTER TABLE public.workout_sessions
+      ADD CONSTRAINT workout_sessions_user_date_type_unique UNIQUE (user_id, date, session_type);
+  END IF;
+END $$;
+```
 
 ---
 
@@ -507,9 +655,11 @@ WHERE table_schema = 'public'
 
 ---
 
-## 14. Complete Fresh Setup (Single Copy-Paste)
+## 16. Complete Fresh Setup (Single Copy-Paste)
 
 If you want to drop everything and recreate from scratch, run these blocks **in order** in the SQL Editor.
+
+If you prefer a single file instead of manual blocks, run `Docs/supabase.sql`.
 
 ### Step 1 — Delete all existing objects
 
@@ -548,7 +698,7 @@ CREATE TABLE public.app_state (
   longest_streak INTEGER DEFAULT 0,
   total_restarts INTEGER DEFAULT 0,
   mode TEXT NOT NULL DEFAULT 'workout' CHECK (mode IN ('workout', '75hard')),
-  freeze_count INTEGER NOT NULL DEFAULT 3 CHECK (freeze_count >= 0 AND freeze_count <= 5),
+  freeze_count INTEGER NOT NULL DEFAULT 3 CHECK (freeze_count >= 0),
   custom_sessions JSONB DEFAULT '[]',
   day_assignments JSONB DEFAULT '{}',
   default_session_overrides JSONB DEFAULT '{}',
@@ -564,8 +714,6 @@ CREATE TABLE public.daily_logs (
   date DATE NOT NULL,
   gym_workout_done BOOLEAN DEFAULT FALSE,
   outdoor_walk_done BOOLEAN DEFAULT FALSE,
-  water_liters NUMERIC(4,2) DEFAULT 0,
-  water_goal_met BOOLEAN DEFAULT FALSE,
   reading_done BOOLEAN DEFAULT FALSE,
   reading_book TEXT DEFAULT '',
   diet_slots JSONB DEFAULT '{"breakfast":"","lunch":"","dinner":"","snacks":""}',
@@ -593,7 +741,8 @@ CREATE TABLE public.workout_sessions (
   duration_minutes INTEGER DEFAULT 0,
   completed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, date, session_type)
 );
 
 -- Indexes

@@ -68,11 +68,10 @@ function getWeekTitle(score: number): { title: string; emoji: string; desc: stri
 }
 
 function buildStats(logs: DailyLog[]) {
-  const totalWater = logs.reduce((s, l) => s + l.waterLiters, 0);
   const gymDays = logs.filter((l) => l.gymWorkoutDone).length;
   const walkDays = logs.filter((l) => l.outdoorWalkDone).length;
   const readDays = logs.filter((l) => l.readingDone).length;
-  const completeDays = logs.filter((l) => l.allTasksComplete).length;
+  const completeDays = logs.filter((l) => l.gymWorkoutDone).length;
 
   const moodMap: Record<string, number> = { great: 5, good: 4, meh: 3, bad: 2, terrible: 1 };
   const moodScores = logs.filter((l) => l.moodEmoji).map((l) => moodMap[l.moodEmoji] ?? 3);
@@ -81,15 +80,12 @@ function buildStats(logs: DailyLog[]) {
   const avgEnergy = logs.length ? logs.reduce((s, l) => s + l.energyLevel, 0) / logs.length : 3;
   const avgMotivation = logs.length ? logs.reduce((s, l) => s + l.motivationLevel, 0) / logs.length : 3;
 
-  // Fun translations
-  const waterCups = Math.round(totalWater * 4); // 1L ≈ 4 cups
-  const waterBaths = (totalWater / 150).toFixed(2); // avg bath ≈ 150L
   const stepsEstimate = walkDays * 6000;
 
   // Best streak in the week
   let bestStreak = 0, cur = 0;
   logs.forEach((l) => {
-    if (l.allTasksComplete) { cur++; bestStreak = Math.max(bestStreak, cur); }
+    if (l.gymWorkoutDone) { cur++; bestStreak = Math.max(bestStreak, cur); }
     else cur = 0;
   });
 
@@ -107,9 +103,6 @@ function buildStats(logs: DailyLog[]) {
   });
 
   return {
-    totalWater: totalWater.toFixed(1),
-    waterCups,
-    waterBaths,
     gymDays,
     walkDays,
     readDays,
@@ -173,32 +166,6 @@ const SLIDES: Slide[] = [
         </div>
       );
     },
-  },
-  {
-    id: 'water',
-    bg: 'linear-gradient(135deg, #001a2a 0%, #0D0D1A 100%)',
-    content: (stats) => (
-      <div className="flex flex-col items-center text-center gap-4 h-full justify-center px-6">
-        <motion.div className="text-6xl" initial={{ y: -40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ type: 'spring', delay: 0.1 }}>
-          💧
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <div className="text-xs uppercase tracking-widest text-blue-400 mb-2">Hydration Report</div>
-          <div className="text-6xl font-black mb-1" style={{ color: '#4ECDC4' }}>{stats.totalWater}L</div>
-          <div className="text-sm text-gray-400 mb-4">of water drank this week</div>
-        </motion.div>
-        <motion.div className="flex flex-col gap-2 w-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}>
-          <div className="rounded-2xl p-3" style={{ background: 'rgba(78,205,196,0.1)', border: '1px solid rgba(78,205,196,0.3)' }}>
-            <div className="text-2xl font-black text-white">{stats.waterCups}</div>
-            <div className="text-xs text-gray-400">cups of water ≈</div>
-          </div>
-          <div className="rounded-2xl p-3" style={{ background: 'rgba(78,205,196,0.08)', border: '1px solid rgba(78,205,196,0.2)' }}>
-            <div className="text-lg font-black text-white">{stats.waterBaths}x</div>
-            <div className="text-xs text-gray-400">of a bathtub (wild right? 😂)</div>
-          </div>
-        </motion.div>
-      </div>
-    ),
   },
   {
     id: 'workouts',
@@ -334,7 +301,7 @@ const SLIDES: Slide[] = [
           <div className="text-7xl font-black" style={{ color: stats.completeDays === 7 ? '#FFE66D' : '#4ECDC4' }}>
             {stats.completeDays}
           </div>
-          <div className="text-sm text-gray-400 mt-1">perfect days out of 7</div>
+          <div className="text-sm text-gray-400 mt-1">workout-complete days out of 7</div>
           {stats.completeDays === 7 && (
             <motion.div
               className="mt-3 text-sm font-bold px-4 py-2 rounded-xl"

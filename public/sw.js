@@ -1,7 +1,7 @@
-// ─── Iron75 Service Worker ───────────────────────────────────────────────────
+// ─── GrindOs Service Worker ──────────────────────────────────────────────────
 // Provides offline support, smart caching, and PWA installability.
 
-const CACHE_VERSION = 'iron75-v3';
+const CACHE_VERSION = 'grindos-v1';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const MAX_DYNAMIC_ENTRIES = 50;

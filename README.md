@@ -1,104 +1,52 @@
-﻿# 🔥 IRON75
+# 🔥 GrindOs
 
-IRON75 is your digital companion for the grueling 75-day mental toughness challenge. This app allows you to track goals, monitor your mood, stay hydrated, manage workout sessions, and stay accountable to your commitment without sacrificing your personal privacy.
+GrindOs is a simple habit tracker and gym logger built for consistency. Log workouts, walks, reading, mood, and nutrition in one place with a local-first flow and optional cloud sync.
 
 ## ✨ Features
 
-- **Daily Dashboard:** Track your core daily tasks with instant local saves. Watch your flame and streak counters grow as you conquer each objective.
-- **PPL Workout Plans:** Built-in Push/Pull/Legs tracking lets you log reps, sets, and notes immediately within the app.
-- **Progress Tracking:** Review your whole journey via dynamic GitHub-styled heatmap grids, rings, and trend charts.
-- **Weekly Wrapped:** Every 7 days, get a comprehensive, automated summary of how well you performed and where you can improve.
-- **AI Coach:** Receive personalized, highly contextual motivation and actionable recovery guidance every time you log in.
-- **Dual Challenge Modes:** Switch between Workout Mode (with streak freezes) and strict 75 Hard Mode (no freezes, missed day resets).
-- **Cloud Streak Recovery:** Reconstruct streaks from synced cloud logs when changing devices or recovering data.
+- **Daily Dashboard:** Fast checkboxes for your core habits and gym session.
+- **Custom Workout Logger:** Build your own routine and track sets, reps, and notes without leaving the app.
+- **Progress Insights:** Heatmaps, charts, and photo timelines to review consistency.
+- **Weekly Wrapped:** Auto weekly summaries for momentum and reflection.
+- **AI Coach:** Data-driven prompts and tips based on your actual logs.
+- **Cloud Sync + Recovery:** Sync with Supabase and recover streaks from cloud logs.
 
-## 🔒 We Value Your Privacy
+## 🔒 Privacy
 
-We believe a tracking app should not turn your daily routine into a commodity. This means:
+1. **You own your data:** local-first storage, with account-isolated cloud sync.
+2. **Secure AI proxy:** Gemini key stays server-side.
+3. **No ad-tech tracking:** no behavioral analytics or fingerprinting.
 
-1. **You Own Your Data:** We store your data locally on your device whenever possible. Information synced to the cloud is strictly isolated to your user account alone using enterprise-grade Row-Level Security (RLS). No other user can ever query or read your data files.
-2. **AI with Boundaries:** The intelligent coaching you receive is powered by anonymized API calls. We do not expose backend keys, nor do we track or retain your interactions identically linked to your identity inside the AI. The system assesses *only the metrics necessary* (like mood, energy levels, and logged completion items) to formulate a tip or strategy.
-3. **No Hidden Tracking:** This app is a tool designed to log events you initiate. There are zero non-essential background telemetry analytics, zero ads, and zero third-party behavioral fingerprint trackers.
-
-## 🚀 Start Tracking Now
-
-You do not need to be a developer to use IRON75! Because all of the privacy and security features described above are already fully implemented, you can start tracking your challenge directly right now as a normal user.
-
----
+## 🚀 Use It
 
 👉 **[https://iron-75.vercel.app](https://iron-75.vercel.app)**
 
----
+## 💻 Development
 
-## 💻 Developer Overview
+### Stack
 
-Welcome to the IRON75 codebase. This is a Next.js Progressive Web App (PWA) with local-first data storage and background cloud synchronization.
+- Next.js 16 (React 19)
+- Tailwind CSS v4 + Framer Motion
+- Supabase (PostgreSQL + Auth + RLS)
+- TypeScript + Vitest
 
-### Architecture & Tech Stack
+### Environment
 
-- **Framework:** Next.js 16 (React 19)
-- **Styling:** Tailwind CSS v4 + Framer Motion
-- **Database / Auth:** Supabase (PostgreSQL, Row Level Security)
-- **State Management:** React state + direct `localStorage` sync
-- **AI Integration:** Google Gemini integration via server-side proxy
-
-### Core Philosophies
-
-#### 1. Privacy First & Local-First Processing
-
-All core daily logs and streaks immediately save to `localStorage`. The application can function offline. Cloud synchronization runs asynchronously purely for multi-device support and data persistence. Row Level Security (RLS) policies on Supabase guarantee that users can exclusively access their own rows.
-
-The AI Coaching proxy (`/api/gemini/route.ts`) acts as a secure intermediary. The Gemini API key is never exposed to the client bundle.
-
-#### 2. Gamified Tracking
-
-The app supports two progression systems:
-
-- **Workout Mode:** missed days consume freeze charges before resetting streaks.
-- **75 Hard Mode:** no freezes; missed days reset immediately.
-
-This logic is handled in `streakLogic.ts`, while historical performance remains preserved in `daily_logs`.
-
-#### 3. Mode-Aware Persistence
-
-App state now includes mode metadata (`mode`, `freeze_count`) and syncs to Supabase so users get consistent behavior across devices.
-
-### Development Setup
-
-#### 1. Requirements
-
-Ensure you have Node.js 18+ installed. Connect to an active Supabase project.
-
-#### 2. Environment Variables
-
-Create a `.env.local`:
+Create `.env.local`:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://[YOUR_INSTANCE].supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=[YOUR_KEY]
-GEMINI_API_KEY=[YOUR_AI_KEY] # Optional
+GEMINI_API_KEY=[YOUR_AI_KEY] # optional
 ```
 
-#### 3. Running Locally
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are required for Supabase auth/cloud sync. If missing, Supabase calls fail fast with a descriptive config error instead of using placeholder credentials.
+
+### Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Visit `http://localhost:3000`.
-
-### Supabase Schema Requirements
-
-See `Docs/supabase-setup.md` for full DB implementation rules. The minimal required tables are:
-
-- `profiles`
-- `app_state`
-- `daily_logs`
-- `workout_sessions`
-
-If your database was created before dual-mode support, run:
-
-- `Docs/supabase-migration-mode.sql`
-
-All tables must enforce `auth.uid() = id/user_id` inside their RLS policies.
+Open `http://localhost:3000`.

@@ -53,7 +53,7 @@ async function getAuthUser(): Promise<string | null> {
 // ── POST handler ────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   if (!GEMINI_API_KEY) {
-    return NextResponse.json({ text: 'AI coach unavailable — add GEMINI_API_KEY to env.' }, { status: 503 });
+    return NextResponse.json({ text: 'AI tip unavailable right now. Keep grinding!' });
   }
 
   // 1. Auth check
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         systemInstruction: {
           parts: [{
-            text: 'You are a direct, data-driven Iron75 coach (75-day fitness challenge: PPL gym, walk, water, reading, diet). Be concise and specific. Reference actual user numbers. No filler. Plain text only.',
+            text: 'You are a direct, data-driven GrindOs coach for habit tracking and gym progression (custom gym sessions, walk, reading, diet, mood/energy). Be concise and specific. Reference actual user numbers. No filler. Plain text only.',
           }],
         },
         contents: [{ parts: [{ text: prompt }] }],
@@ -102,8 +102,12 @@ export async function POST(request: NextRequest) {
 
     if (!res.ok) {
       const err = await res.text();
-      console.error('Gemini error:', err);
-      return NextResponse.json({ text: 'AI tip unavailable right now. Keep grinding!' }, { status: 502 });
+      if (/API_KEY_INVALID|API key expired/i.test(err)) {
+        console.warn('Gemini API key invalid or expired. Falling back to offline tips.');
+      } else {
+        console.warn(`Gemini upstream error (${res.status}). Falling back to offline tips.`);
+      }
+      return NextResponse.json({ text: 'AI tip unavailable right now. Keep grinding!' });
     }
 
     const data = await res.json();
@@ -111,7 +115,7 @@ export async function POST(request: NextRequest) {
       data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Stay consistent. Every rep counts.';
     return NextResponse.json({ text: raw.trim() });
   } catch (err) {
-    console.error('Gemini route error:', err);
-    return NextResponse.json({ text: 'Network error. Remember: no excuses, only results!' }, { status: 502 });
+    console.warn('Gemini route network error. Falling back to offline tips.', err);
+    return NextResponse.json({ text: 'AI tip unavailable right now. Keep grinding!' });
   }
 }

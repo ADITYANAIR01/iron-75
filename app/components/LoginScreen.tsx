@@ -67,8 +67,8 @@ export default function LoginScreen() {
           >
             🔥
           </motion.div>
-          <h1 className="text-3xl font-black" style={{ background: 'linear-gradient(135deg, #FF6B35, #FFE66D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>IRON75</h1>
-          <p className="text-sm text-gray-500 mt-1">75 Hard Challenge Tracker</p>
+          <h1 className="text-3xl font-black" style={{ background: 'linear-gradient(135deg, #FF6B35, #FFE66D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>GRINDOS</h1>
+          <p className="text-sm text-gray-500 mt-1">Simple Habit Tracker + Gym Logger</p>
         </div>
 
         {/* Mode toggle */}
