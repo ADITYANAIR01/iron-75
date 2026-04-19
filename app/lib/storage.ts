@@ -611,7 +611,15 @@ export async function syncFromSupabase(): Promise<void> {
         const localRaw = typeof window !== 'undefined'
           ? localStorage.getItem(KEYS.DAILY_LOG(row.date))
           : null;
-        const localLog: DailyLog | null = localRaw ? JSON.parse(localRaw) : null;
+        let localLog: DailyLog | null = null;
+        if (localRaw) {
+          try {
+            localLog = JSON.parse(localRaw) as DailyLog;
+          } catch {
+            // Corrupt local payload should not abort whole sync.
+            localStorage.removeItem(KEYS.DAILY_LOG(row.date));
+          }
+        }
         const cloudTs = row.updated_at ?? '';
         const localTs = localLog?.updatedAt ?? '';
 
@@ -723,6 +731,8 @@ export async function syncFromSupabase(): Promise<void> {
           );
           if (row.completed) {
             localStorage.setItem(KEYS.WORKOUT_COMPLETE(row.date, row.session_type), '1');
+          } else {
+            localStorage.removeItem(KEYS.WORKOUT_COMPLETE(row.date, row.session_type));
           }
           localStorage.setItem(KEYS.WORKOUT_TS(row.date, row.session_type), cloudTs || new Date().toISOString());
         }
@@ -1128,7 +1138,31 @@ export async function resetChallenge(): Promise<AppState> {
   return newState;
 }
 
-export async function deleteAllData(): Promise<void> {
+export interface DeleteAllDataResult {
+  localDeleted: boolean;
+  cloudDeleted: boolean;
+  cloudError: string | null;
+}
+
+function formatSupabaseError(prefix: string, error: unknown): string {
+  if (!error) return prefix;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const msg = (error as { message?: string }).message;
+    return msg ? `${prefix}: ${msg}` : prefix;
+  }
+  if (error instanceof Error && error.message) {
+    return `${prefix}: ${error.message}`;
+  }
+  return prefix;
+}
+
+export async function deleteAllData(): Promise<DeleteAllDataResult> {
+  const result: DeleteAllDataResult = {
+    localDeleted: true,
+    cloudDeleted: false,
+    cloudError: null,
+  };
+
   // 1. Clear all local tracker keys from localStorage
   if (typeof window !== 'undefined') {
     // Clear pending sync queue first — prevents stale data from being re-pushed
@@ -1146,28 +1180,59 @@ export async function deleteAllData(): Promise<void> {
   // 2. Delete from Supabase
   try {
     const userId = await getSupabaseUserId();
-    if (!userId) return;
+    if (!userId) {
+      result.cloudError = 'Not authenticated for cloud deletion.';
+      return result;
+    }
     const supabase = createClient();
 
     // Delete daily logs
-    await supabase.from('daily_logs').delete().eq('user_id', userId);
+    const { error: dailyDeleteError } = await supabase.from('daily_logs').delete().eq('user_id', userId);
+    if (dailyDeleteError) {
+      result.cloudError = formatSupabaseError('Failed to delete daily logs', dailyDeleteError);
+      return result;
+    }
     // Delete workout sessions
-    await supabase.from('workout_sessions').delete().eq('user_id', userId);
+    const { error: workoutDeleteError } = await supabase.from('workout_sessions').delete().eq('user_id', userId);
+    if (workoutDeleteError) {
+      result.cloudError = formatSupabaseError('Failed to delete workout sessions', workoutDeleteError);
+      return result;
+    }
     // Delete app state
-    await supabase.from('app_state').delete().eq('user_id', userId);
+    const { error: appStateDeleteError } = await supabase.from('app_state').delete().eq('user_id', userId);
+    if (appStateDeleteError) {
+      result.cloudError = formatSupabaseError('Failed to delete app state', appStateDeleteError);
+      return result;
+    }
     // Delete profile
-    await supabase.from('profiles').delete().eq('id', userId);
+    const { error: profileDeleteError } = await supabase.from('profiles').delete().eq('id', userId);
+    if (profileDeleteError) {
+      result.cloudError = formatSupabaseError('Failed to delete profile', profileDeleteError);
+      return result;
+    }
 
     // Delete all progress photos from storage
-    const { data: files } = await supabase.storage
+    const { data: files, error: listError } = await supabase.storage
       .from('progress-photos')
       .list(userId);
+    if (listError) {
+      result.cloudError = formatSupabaseError('Failed to list progress photos', listError);
+      return result;
+    }
     if (files && files.length > 0) {
       const paths = files.map((f) => `${userId}/${f.name}`);
-      await supabase.storage.from('progress-photos').remove(paths);
+      const { error: removeError } = await supabase.storage.from('progress-photos').remove(paths);
+      if (removeError) {
+        result.cloudError = formatSupabaseError('Failed to delete progress photos', removeError);
+        return result;
+      }
     }
+
+    result.cloudDeleted = true;
+    return result;
   } catch (err) {
-    console.warn('Supabase data deletion failed:', err);
+    result.cloudError = formatSupabaseError('Supabase data deletion failed', err);
+    return result;
   }
 }
 

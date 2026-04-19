@@ -91,6 +91,69 @@ function parseSessionCollection(value: unknown): Array<Partial<CustomSession> | 
   return [];
 }
 
+function normalizeSessionCollection(value: unknown): CustomSession[] {
+  return parseSessionCollection(value)
+    .map((session) => normalizeCustomSession(session as Partial<CustomSession>))
+    .filter((session) => session.name.length > 0);
+}
+
+function sortSessionsById(sessions: CustomSession[]): CustomSession[] {
+  return [...sessions].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function sortAssignments(assignments: DayAssignments): DayAssignments {
+  return Object.fromEntries(
+    Object.entries(assignments).sort(([a], [b]) => Number(a) - Number(b))
+  ) as DayAssignments;
+}
+
+function sessionsEqual(a: CustomSession[], b: CustomSession[]): boolean {
+  return JSON.stringify(sortSessionsById(a)) === JSON.stringify(sortSessionsById(b));
+}
+
+function assignmentsEqual(a: DayAssignments, b: DayAssignments): boolean {
+  return JSON.stringify(sortAssignments(a)) === JSON.stringify(sortAssignments(b));
+}
+
+export function mergeCustomSessions(localSessions: CustomSession[], cloudSessions: CustomSession[]): CustomSession[] {
+  const local = localSessions.map(normalizeCustomSession).filter((session) => session.name.length > 0);
+  const cloud = cloudSessions.map(normalizeCustomSession).filter((session) => session.name.length > 0);
+
+  const mergedById = new Map<string, CustomSession>();
+  for (const session of cloud) mergedById.set(session.id, session);
+  for (const session of local) mergedById.set(session.id, session);
+
+  // Preserve local ordering first, then append cloud-only sessions.
+  const orderedIds: string[] = [];
+  for (const session of local) {
+    if (!orderedIds.includes(session.id)) orderedIds.push(session.id);
+  }
+  for (const session of cloud) {
+    if (!orderedIds.includes(session.id)) orderedIds.push(session.id);
+  }
+
+  return orderedIds
+    .map((id) => mergedById.get(id))
+    .filter((session): session is CustomSession => !!session);
+}
+
+export function mergeDayAssignments(
+  localAssignments: DayAssignments,
+  cloudAssignments: DayAssignments,
+  sessions: CustomSession[]
+): DayAssignments {
+  const merged = sanitizeDayAssignments({ ...cloudAssignments, ...localAssignments });
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  const filtered: DayAssignments = {};
+
+  for (const [dow, sessionId] of Object.entries(merged)) {
+    if (!sessionId || !sessionIds.has(sessionId)) continue;
+    filtered[Number(dow)] = sessionId;
+  }
+
+  return sanitizeDayAssignments(filtered);
+}
+
 export function sanitizePhaseItems(value: unknown, fallback: string[]): string[] {
   if (!Array.isArray(value)) return [...fallback];
   return value.map((item) => sanitizeText(item)).filter((item) => item.length > 0);
@@ -161,8 +224,7 @@ function parseJson<T>(key: string, fallback: T): T {
 
 export function getCustomSessions(): CustomSession[] {
   const parsed = parseJson<unknown>(CUSTOM_SESSIONS_KEY, []);
-  const sessions = parseSessionCollection(parsed);
-  return sessions.map((session) => normalizeCustomSession(session as Partial<CustomSession>)).filter((session) => session.name.length > 0);
+  return normalizeSessionCollection(parsed);
 }
 
 export function saveCustomSessions(sessions: CustomSession[]): void {
@@ -226,22 +288,49 @@ export async function syncCustomWorkoutsFromSupabase(): Promise<void> {
 
     if (error || !row || typeof window === 'undefined') return;
 
-    const cloudSessions = parseSessionCollection(row.custom_sessions);
+    const cloudSessions = normalizeSessionCollection(row.custom_sessions);
     const cloudAssignments = sanitizeDayAssignments(row.day_assignments);
 
     const localSessions = getCustomSessions();
     const localAssignments = getDayAssignments();
+    const localEmpty = localSessions.length === 0;
+    const cloudEmpty = cloudSessions.length === 0;
+    const localAssignmentsEmpty = Object.keys(localAssignments).length === 0;
+    const cloudAssignmentsEmpty = Object.keys(cloudAssignments).length === 0;
 
-    if (localSessions.length === 0 && cloudSessions.length > 0) {
-      localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(cloudSessions.map((session) => normalizeCustomSession(session as Partial<CustomSession>))));
-    } else if (localSessions.length > 0 && cloudSessions.length === 0) {
+    if (localEmpty && !cloudEmpty) {
+      localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(cloudSessions));
+    } else if (!localEmpty && cloudEmpty) {
       syncCustomWorkoutsToSupabase();
+    } else if (!localEmpty && !cloudEmpty) {
+      const mergedSessions = mergeCustomSessions(localSessions, cloudSessions);
+      const localSessionsMatch = sessionsEqual(localSessions, mergedSessions);
+      const cloudSessionsMatch = sessionsEqual(cloudSessions, mergedSessions);
+
+      if (!localSessionsMatch) {
+        localStorage.setItem(CUSTOM_SESSIONS_KEY, JSON.stringify(mergedSessions));
+      }
+      if (!cloudSessionsMatch || !localSessionsMatch) {
+        syncCustomWorkoutsToSupabase();
+      }
     }
 
-    if (Object.keys(localAssignments).length === 0 && Object.keys(cloudAssignments).length > 0) {
+    const sessionsForAssignments = getCustomSessions();
+    if (localAssignmentsEmpty && !cloudAssignmentsEmpty) {
       localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(cloudAssignments));
-    } else if (Object.keys(localAssignments).length > 0 && Object.keys(cloudAssignments).length === 0) {
+    } else if (!localAssignmentsEmpty && cloudAssignmentsEmpty) {
       syncCustomWorkoutsToSupabase();
+    } else if (!localAssignmentsEmpty && !cloudAssignmentsEmpty) {
+      const mergedAssignments = mergeDayAssignments(localAssignments, cloudAssignments, sessionsForAssignments);
+      const localAssignmentsMatch = assignmentsEqual(localAssignments, mergedAssignments);
+      const cloudAssignmentsMatch = assignmentsEqual(cloudAssignments, mergedAssignments);
+
+      if (!localAssignmentsMatch) {
+        localStorage.setItem(DAY_ASSIGNMENTS_KEY, JSON.stringify(mergedAssignments));
+      }
+      if (!cloudAssignmentsMatch || !localAssignmentsMatch) {
+        syncCustomWorkoutsToSupabase();
+      }
     }
   } catch {
     // Offline — skip.

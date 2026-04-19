@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { SessionSpec, ExerciseSpec } from '../lib/pplData';
 import { getToday, saveDailyLog, getOrCreateTodayLog, getDayOfWeek, getWorkoutState, saveWorkoutState, isWorkoutComplete, markWorkoutComplete } from '../lib/storage';
 import { getSessionForDow, getAllSessionSpecs } from '../lib/customWorkouts';
+import { buildWorkoutProgressionReport } from '../lib/workoutProgression';
 import WorkoutPlanner from './WorkoutPlanner';
 import type { ExerciseState, SetState } from '../lib/types';
 
@@ -46,6 +47,45 @@ function sanitizeExerciseState(state: unknown, fallbackSetCount: number, useSave
     notes: typeof source.notes === 'string' ? source.notes : '',
     expanded: source.expanded === true,
   };
+}
+
+function buildHistoryFromLocalStorage(sessionKey: string) {
+  if (typeof window === 'undefined') return [];
+
+  const history: Array<{
+    date: string;
+    sessionKey: string;
+    completed: boolean;
+    exercises: Record<string, ExerciseState>;
+  }> = [];
+
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith('iron75_workout_state_')) continue;
+
+    const suffix = key.replace('iron75_workout_state_', '');
+    const date = suffix.slice(0, 10);
+    const storedSessionKey = suffix.slice(11);
+    if (!date || !storedSessionKey || storedSessionKey !== sessionKey) continue;
+
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+
+    try {
+      const parsed = JSON.parse(raw) as Record<string, ExerciseState>;
+      if (!isRecord(parsed)) continue;
+      history.push({
+        date,
+        sessionKey: storedSessionKey,
+        completed: localStorage.getItem(`iron75_workout_complete_${date}_${storedSessionKey}`) === '1',
+        exercises: parsed,
+      });
+    } catch {
+      // Ignore malformed entries and continue building history.
+    }
+  }
+
+  return history.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function loadWorkoutState(date: string, session: SessionSpec): Record<string, ExerciseState> {
@@ -366,6 +406,11 @@ export default function WorkoutScreen() {
   const completedExercises = session?.exercises.filter(
     (ex) => exerciseStates[ex.name]?.sets.every((s) => s.done)
   ).length ?? 0;
+  const progressionReport = session
+    ? buildWorkoutProgressionReport(buildHistoryFromLocalStorage(session.key))
+    : null;
+  const nextTargets = progressionReport?.nextTargets ?? [];
+  const recentPrs = progressionReport?.prs.slice(-3) ?? [];
 
   const handleCompleteSession = () => {
     if (!session) return;
@@ -472,6 +517,45 @@ export default function WorkoutScreen() {
       <div className="rounded-2xl px-3 py-2 text-[10px] text-gray-500" style={{ background: 'rgba(12,12,30,0.55)', border: '1px solid rgba(255,255,255,0.05)' }}>
         Session Flow: Phase 1 warm-up + dynamic stretch → Phase 2 main workout → Phase 3 static stretch cool-down.
       </div>
+
+      {(nextTargets.length > 0 || recentPrs.length > 0) && (
+        <div
+          className="rounded-2xl p-3"
+          style={{ background: 'rgba(12,12,30,0.7)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <div className="text-[10px] uppercase tracking-widest text-gray-500">Progression Coach</div>
+          {nextTargets.length > 0 && (
+            <div className="mt-2 flex flex-col gap-2">
+              {nextTargets.slice(0, 3).map((target) => {
+                const actionColor =
+                  target.action === 'push' ? '#00F5D4' : target.action === 'ease' ? '#FFE66D' : '#94A3B8';
+                return (
+                  <div
+                    key={target.exerciseName}
+                    className="rounded-xl px-3 py-2"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-gray-200">{target.exerciseName}</span>
+                      <span className="text-[10px] font-bold uppercase" style={{ color: actionColor }}>
+                        {target.action}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-gray-400">
+                      Target reps: {target.targetRepsBySet.join(' / ')}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {recentPrs.length > 0 && (
+            <div className="mt-3 text-[11px] text-gray-400">
+              Recent PRs: {recentPrs.map((pr) => `${pr.exerciseName} (${pr.metric.replace('_', ' ')} +${pr.improvement})`).join(' · ')}
+            </div>
+          )}
+        </div>
+      )}
 
       <WarmCoolSection
         phase="Phase 1"

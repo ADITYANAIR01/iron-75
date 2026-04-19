@@ -204,15 +204,19 @@ export default function SettingsScreen() {
   const handleDeleteAllData = async () => {
     setDeleting(true);
     try {
-      await deleteAllData();
+      const result = await deleteAllData();
       setState(null);
       setName('');
       setShowConfirmDelete(false);
-      setToast('All data deleted permanently. 🗑️');
+      setToast(
+        result.cloudDeleted
+          ? 'All data deleted locally and in cloud. 🗑️'
+          : `Local data deleted. Cloud deletion incomplete: ${result.cloudError ?? 'unknown error'}`
+      );
       setTimeout(() => {
         setToast('');
         window.location.reload();
-      }, 2000);
+      }, result.cloudDeleted ? 2000 : 4500);
     } catch {
       setToast('Delete failed. Please try again.');
       setTimeout(() => setToast(''), 3000);
@@ -764,7 +768,7 @@ export default function SettingsScreen() {
             </div>
           </div>
           <p className="text-xs text-gray-500">
-            Data syncs to cloud automatically. Works offline too.
+            Core logs and workouts sync to cloud automatically. Some preferences remain local.
           </p>
           <motion.button
             whileTap={{ scale: 0.95 }}
