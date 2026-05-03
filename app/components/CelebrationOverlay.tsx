@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import FireIcon from './FireIcon';
 
 interface Particle {
   id: number;
@@ -64,7 +65,7 @@ export default function CelebrationOverlay({
   dayNumber,
   streak,
 }: CelebrationOverlayProps) {
-  const [particles] = useState(() => generateParticles(80));
+  const [particles] = useState(() => generateParticles(52));
   const audioPlayedRef = useRef(false);
 
   useEffect(() => {
@@ -111,35 +112,62 @@ export default function CelebrationOverlay({
   }, [visible]);
 
   const badge = dayNumber >= 75 ? '👑' : dayNumber >= 50 ? '🏆' : dayNumber >= 25 ? '🌟' : dayNumber >= 14 ? '💪' : dayNumber >= 7 ? '⚡' : '🔥';
+  const normalizedStreak = Math.max(0, streak);
+  const currentMilestone = Math.floor(normalizedStreak / 7) * 7;
+  const nextMilestone = Math.max(7, currentMilestone + 7);
+  const milestoneSpan = nextMilestone - currentMilestone;
+  const milestoneStep = Math.max(0, normalizedStreak - currentMilestone);
+  const milestoneProgress = Math.max(0, Math.min(1, milestoneStep / milestoneSpan));
+  const streakTier =
+    streak >= 75 ? 'Legend streak' :
+    streak >= 50 ? 'Elite streak' :
+    streak >= 25 ? 'Unstoppable streak' :
+    streak >= 14 ? 'Momentum streak' :
+    streak >= 7 ? 'Locked-in streak' : 'Starter streak';
 
   return (
     <AnimatePresence>
       {visible && (
-        <motion.div
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)' }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onDismiss}
-        >
-          {/* Particle burst */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            {particles.map((p) => (
+          <motion.div
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+            style={{ background: 'rgba(4,6,18,0.86)', backdropFilter: 'blur(8px)' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onDismiss}
+          >
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
               <motion.div
+                className="absolute left-1/2 -translate-x-1/2 top-[12%] w-[420px] h-[420px] rounded-full"
+                style={{ background: 'radial-gradient(circle, rgba(255,107,53,0.25), rgba(255,107,53,0) 70%)' }}
+                animate={{ opacity: [0.45, 0.9, 0.55], scale: [0.9, 1.08, 0.95] }}
+                transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+              />
+              <motion.div
+                className="absolute left-1/2 -translate-x-1/2 top-[18%] w-[280px] h-[280px] rounded-full"
+                style={{ border: '1px solid rgba(255,230,109,0.3)' }}
+                animate={{ scale: [0.85, 1.25], opacity: [0.65, 0] }}
+                transition={{ duration: 1.25, repeat: Infinity, ease: 'easeOut' }}
+              />
+            </div>
+
+            {/* Particle burst */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              {particles.map((p) => (
+                <motion.div
                 key={p.id}
                 className="absolute"
                 style={{ left: `${p.x}%`, top: '-20px' }}
                 animate={{
-                  x: p.vx * 1.5,
-                  y: p.vy * 3 + window.innerHeight,
-                  rotate: p.rotation + 720,
-                  opacity: [1, 1, 0],
+                  x: [0, p.vx * 0.55, p.vx * 0.35],
+                  y: ['0vh', '42vh', '118vh'],
+                  rotate: [p.rotation, p.rotation + 380],
+                  opacity: [1, 0.9, 0],
                 }}
                 transition={{
-                  duration: 2.5 + Math.random() * 1.5,
+                  duration: 2.05 + Math.random() * 1.05,
                   ease: 'easeIn',
-                  delay: Math.random() * 0.5,
+                  delay: Math.random() * 0.32,
                 }}
               >
                 {p.shape === 'star' ? (
@@ -160,11 +188,12 @@ export default function CelebrationOverlay({
 
           {/* Central celebration card */}
           <motion.div
-            className="relative z-10 flex flex-col items-center gap-5 px-8 py-10 rounded-3xl text-center mx-4"
+            className="relative z-10 flex flex-col items-center gap-5 px-8 py-9 rounded-3xl text-center mx-4 w-[min(92vw,390px)]"
             style={{
-              background: 'linear-gradient(135deg, #0D0D2A 0%, #1a1a4a 100%)',
-              border: '2px solid #FF6B35',
-              boxShadow: '0 0 60px rgba(255,107,53,0.4)',
+              background: 'linear-gradient(160deg, rgba(11,14,42,0.98) 0%, rgba(16,24,60,0.95) 48%, rgba(20,20,54,0.98) 100%)',
+              border: '1.5px solid rgba(255,107,53,0.85)',
+              boxShadow: '0 24px 80px rgba(255,107,53,0.26), inset 0 1px 0 rgba(255,255,255,0.12)',
+              backdropFilter: 'blur(18px)',
             }}
             initial={{ scale: 0, rotate: -10 }}
             animate={{ scale: 1, rotate: 0 }}
@@ -172,19 +201,27 @@ export default function CelebrationOverlay({
             transition={{ type: 'spring', stiffness: 200, damping: 20 }}
             onClick={(e) => e.stopPropagation()}
           >
+            <motion.div
+              className="absolute inset-0 rounded-3xl pointer-events-none"
+              style={{ border: '1px solid rgba(255,230,109,0.25)' }}
+              animate={{ opacity: [0.4, 0.8, 0.45] }}
+              transition={{ duration: 1.3, repeat: Infinity, ease: 'easeInOut' }}
+            />
+
             {/* Badge + streak */}
             <motion.div
-              animate={{ rotate: [0, -5, 5, -5, 5, 0] }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-              className="text-6xl"
+              animate={{ rotate: [0, -4, 4, -4, 4, 0], y: [0, -2, 0] }}
+              transition={{ duration: 0.7, delay: 0.3 }}
+              className="relative"
             >
-              {badge}
+              <div className="absolute -top-3 -right-3 text-2xl">{badge}</div>
+              <FireIcon sizeClassName="text-7xl" />
             </motion.div>
 
             <div>
               <motion.h1
                 className="text-3xl font-black"
-                style={{ color: '#FF6B35' }}
+                style={{ color: '#FF6B35', textShadow: '0 0 24px rgba(255,107,53,0.28)' }}
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
@@ -193,14 +230,46 @@ export default function CelebrationOverlay({
               </motion.h1>
               <motion.p
                 className="text-lg mt-1 font-semibold"
-                style={{ color: '#4ECDC4' }}
+                style={{ color: '#67E8F9' }}
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.3 }}
               >
                 🔥 {streak} Day Streak
               </motion.p>
+              <motion.p
+                className="text-[11px] mt-1 uppercase tracking-wider font-bold"
+                style={{ color: '#94A3B8' }}
+                initial={{ y: 10, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.38 }}
+              >
+                {streakTier}
+              </motion.p>
             </div>
+
+            <motion.div
+              className="w-full max-w-[290px]"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.44 }}
+            >
+              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider" style={{ color: '#94A3B8' }}>
+                <span>Next milestone</span>
+                <span>{milestoneStep}/{milestoneSpan} • {nextMilestone}d</span>
+              </div>
+              <div className="mt-1 h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.12)' }}>
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{
+                    background: 'linear-gradient(90deg, #FF6B35, #FFE66D, #67E8F9)',
+                    minWidth: milestoneProgress > 0 ? 6 : 0,
+                  }}
+                  animate={{ width: `${milestoneProgress * 100}%` }}
+                  transition={{ type: 'spring', stiffness: 120, damping: 18 }}
+                />
+              </div>
+            </motion.div>
 
             {/* All 7 done indicator */}
             <motion.div
@@ -212,9 +281,10 @@ export default function CelebrationOverlay({
               {['🏋️', '🚶', '💧', '🥗', '😊', '📖', '📷'].map((icon, i) => (
                 <motion.span
                   key={i}
-                  className="text-xl"
+                  className="text-xl w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
                   initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
+                  animate={{ scale: [1, 1.07, 1] }}
                   transition={{ delay: 0.6 + i * 0.08, type: 'spring', stiffness: 300 }}
                 >
                   {icon}
@@ -225,13 +295,13 @@ export default function CelebrationOverlay({
             <motion.button
               onClick={onDismiss}
               whileTap={{ scale: 0.95 }}
-              className="px-8 py-3 rounded-full font-bold text-black mt-2"
-              style={{ background: 'linear-gradient(90deg, #FF6B35, #FFE66D)' }}
+              className="px-8 py-3 rounded-full font-black text-black mt-2 uppercase tracking-wide"
+              style={{ background: 'linear-gradient(90deg, #FF6B35, #FFE66D)', boxShadow: '0 8px 24px rgba(255,107,53,0.35)' }}
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.7 }}
             >
-              LET&apos;S GOOO! 💪
+              Continue 🔥
             </motion.button>
           </motion.div>
         </motion.div>

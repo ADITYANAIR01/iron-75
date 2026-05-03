@@ -18,6 +18,8 @@ import { getProgressionState, saveProgressionState } from '../lib/progressionSto
 import { applyProgressionUpdate, createDefaultProgressionState, DAILY_XP_CAP, getLevelProgress } from '../lib/progressionLogic';
 import { DailyLog, AppState, MoodEmoji, UserFocus, ProgressionState, ProgressionSource } from '../lib/types';
 import CelebrationOverlay from './CelebrationOverlay';
+import QuestPath from './QuestPath';
+import FireIcon from './FireIcon';
 import { getDailyTip, getMotivationalQuote, fetchAIQuote, getTipCategory } from '../lib/aiTips';
 import { askGemini } from '../lib/gemini';
 import { recordTelemetryEvent } from '../lib/telemetry';
@@ -491,8 +493,7 @@ export default function TodayScreen() {
   if (!mounted || !log) {
     return (
       <div className="flex items-center justify-center h-64">
-        <motion.div className="text-5xl" animate={{ rotate: 360 }}
-          transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}>🔥</motion.div>
+        <FireIcon sizeClassName="text-5xl" />
       </div>
     );
   }
@@ -519,6 +520,40 @@ export default function TodayScreen() {
     log.moodEmoji !== '',
   ].filter(Boolean).length;
   const selectedMood = MOODS.find((m) => m.value === log.moodEmoji);
+  const dailyFlow = [
+    {
+      id: 'prep',
+      icon: '🟢',
+      title: 'Prep',
+      subtitle: 'Prime your body + mind',
+      done: quickLogDoneCount > 0 || log.moodEmoji !== '',
+      doneColor: '#38BDF8',
+    },
+    {
+      id: 'perform',
+      icon: '🔥',
+      title: 'Perform',
+      subtitle: 'Finish your workout quest',
+      done: log.gymWorkoutDone,
+      doneColor: '#FF6B35',
+    },
+    {
+      id: 'recover',
+      icon: '🌙',
+      title: 'Recover',
+      subtitle: 'Log mood + recovery habits',
+      done: log.gymWorkoutDone && (log.outdoorWalkDone || log.readingDone || log.moodEmoji !== ''),
+      doneColor: '#00F5D4',
+    },
+  ] as const;
+  const nextQuestStep = dailyFlow.find((step) => !step.done);
+  const questHint = nextQuestStep
+    ? `Next: ${nextQuestStep.title} — ${nextQuestStep.subtitle}`
+    : 'Daily flow complete. Keep recovery consistent.';
+  const momentumScore = Math.round(
+    ((completedCount / 5) * 0.65 + Math.min(appState.streak, 30) / 30 * 0.35) * 100
+  );
+  const streakMilestone = appState.streak > 0 && appState.streak % 7 === 0;
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-5 pb-28">
@@ -552,7 +587,7 @@ export default function TodayScreen() {
 
       {/* ── Hero Card with Streak & Progress Ring ────────────────────────── */}
       <motion.div
-        className="relative rounded-3xl p-6 overflow-hidden"
+        className="relative rounded-3xl p-6 overflow-hidden surface-2026"
         style={{
           background: 'linear-gradient(135deg, #1a0800 0%, #0a0020 35%, #06060F 65%, #001510 100%)',
           border: '1px solid rgba(255,107,53,0.2)',
@@ -616,6 +651,17 @@ export default function TodayScreen() {
             <div className="flex items-center gap-1.5 mt-2 text-xs font-semibold" style={{ color: '#64748B' }}>
               ✅ Missed streak days reset to Day 1
             </div>
+            {streakMilestone && (
+              <motion.div
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em]"
+                style={{ background: 'rgba(255,230,109,0.12)', color: '#FFE66D', border: '1px solid rgba(255,230,109,0.4)' }}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: [1, 1.05, 1] }}
+                transition={{ duration: 1.2, repeat: Infinity, repeatDelay: 0.6 }}
+              >
+                ✨ Streak milestone · {appState.streak} days
+              </motion.div>
+            )}
           </div>
 
           <div className="flex flex-col items-center gap-2">
@@ -631,7 +677,7 @@ export default function TodayScreen() {
           <span className="text-xs" style={{ color: '#64748B' }}>{dateStr}</span>
           <span className="text-[10px] px-2.5 py-1 rounded-full font-bold"
             style={{ background: 'rgba(255,255,255,0.06)', color: '#94A3B8', border: '1px solid rgba(255,255,255,0.08)' }}>
-            📈 Keep the streak alive
+            📈 Momentum {momentumScore}
           </span>
         </div>
 
@@ -656,6 +702,15 @@ export default function TodayScreen() {
           </div>
         </div>
       </motion.div>
+
+      <QuestPath
+        title="Daily Quest Path"
+        titleColor="#FFE66D"
+        background="linear-gradient(135deg, rgba(255,230,109,0.08), rgba(255,107,53,0.06))"
+        borderColor="rgba(255,230,109,0.2)"
+        steps={dailyFlow.map((step) => ({ ...step }))}
+        hint={questHint}
+      />
 
       <motion.div
         className="rounded-2xl p-4"

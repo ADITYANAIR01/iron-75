@@ -10,7 +10,7 @@ const MAX_DYNAMIC_ENTRIES = 50;
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
-  '/logo.png',
+  '/grindos-logo.svg',
 ];
 
 // ─── Install: pre-cache the app shell ────────────────────────────────────────

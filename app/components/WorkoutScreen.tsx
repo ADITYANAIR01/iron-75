@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SessionSpec, ExerciseSpec } from '../lib/pplData';
 import { getToday, saveDailyLog, getOrCreateTodayLog, getDayOfWeek, getWorkoutState, saveWorkoutState, isWorkoutComplete, markWorkoutComplete } from '../lib/storage';
 import { getSessionForDow, getAllSessionSpecs } from '../lib/customWorkouts';
 import { buildWorkoutProgressionReport } from '../lib/workoutProgression';
 import WorkoutPlanner from './WorkoutPlanner';
+import QuestPath from './QuestPath';
 import type { ExerciseState, SetState } from '../lib/types';
 
 function buildInitialExerciseState(ex: ExerciseSpec): ExerciseState {
@@ -329,6 +330,10 @@ export default function WorkoutScreen() {
   const [exerciseStates, setExerciseStates] = useState<Record<string, ExerciseState>>({});
   const [sessionComplete, setSessionComplete] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [showPreAnimation, setShowPreAnimation] = useState(false);
+  const [showPostAnimation, setShowPostAnimation] = useState(false);
+  const preAnimationFiredRef = useRef(false);
+  const postAnimationFiredRef = useRef(false);
 
   const refreshSessions = useCallback(() => {
     const sessions = getAllSessionSpecs();
@@ -403,6 +408,7 @@ export default function WorkoutScreen() {
     (s, ex) => s + (exerciseStates[ex.name]?.sets.filter((st) => st.done).length ?? 0),
     0
   ) ?? 0;
+  const sessionProgress = totalSets > 0 ? Math.max(0, Math.min(1, doneSets / totalSets)) : 0;
   const completedExercises = session?.exercises.filter(
     (ex) => exerciseStates[ex.name]?.sets.every((s) => s.done)
   ).length ?? 0;
@@ -411,6 +417,66 @@ export default function WorkoutScreen() {
     : null;
   const nextTargets = progressionReport?.nextTargets ?? [];
   const recentPrs = progressionReport?.prs.slice(-3) ?? [];
+
+  useEffect(() => {
+    if (doneSets > 0 && !preAnimationFiredRef.current) {
+      preAnimationFiredRef.current = true;
+      setShowPreAnimation(true);
+      const timer = window.setTimeout(() => setShowPreAnimation(false), 1800);
+      return () => window.clearTimeout(timer);
+    }
+  }, [doneSets]);
+
+  useEffect(() => {
+    preAnimationFiredRef.current = false;
+    setShowPreAnimation(false);
+  }, [today, sessionKey]);
+
+  useEffect(() => {
+    if (sessionComplete && !postAnimationFiredRef.current) {
+      postAnimationFiredRef.current = true;
+      setShowPostAnimation(true);
+      const timer = window.setTimeout(() => setShowPostAnimation(false), 2200);
+      return () => window.clearTimeout(timer);
+    }
+    if (!sessionComplete) {
+      postAnimationFiredRef.current = false;
+    }
+  }, [sessionComplete]);
+
+  const phasePath = [
+    {
+      id: 'pre',
+      title: 'Pre',
+      subtitle: 'Warm-up',
+      icon: '🟢',
+      done: doneSets > 0 || sessionComplete,
+      active: doneSets === 0 && !sessionComplete,
+      color: '#38BDF8',
+    },
+    {
+      id: 'main',
+      title: 'Main',
+      subtitle: 'Lift sets',
+      icon: '🏋️',
+      done: sessionComplete,
+      active: doneSets > 0 && !sessionComplete,
+      color: session?.color ?? '#A855F7',
+    },
+    {
+      id: 'post',
+      title: 'Post',
+      subtitle: 'Cool-down',
+      icon: '❄️',
+      done: sessionComplete,
+      active: sessionComplete,
+      color: '#00F5D4',
+    },
+  ] as const;
+  const nextPhase = phasePath.find((phase) => !phase.done);
+  const phaseHint = nextPhase
+    ? `Next: ${nextPhase.title} — ${nextPhase.subtitle}`
+    : 'All phases complete. Recovery logged.';
 
   const handleCompleteSession = () => {
     if (!session) return;
@@ -504,8 +570,12 @@ export default function WorkoutScreen() {
               <div className="h-2 rounded-full" style={{ background: '#141432' }}>
                 <motion.div
                   className="h-2 rounded-full"
-                  style={{ background: `linear-gradient(90deg, ${session.color}, ${session.color}99)`, boxShadow: `0 0 8px ${session.color}40` }}
-                  animate={{ width: totalSets > 0 ? `${(doneSets / totalSets) * 100}%` : '0%' }}
+                  style={{
+                    background: `linear-gradient(90deg, ${session.color}, ${session.color}99)`,
+                    boxShadow: `0 0 8px ${session.color}40`,
+                    minWidth: sessionProgress > 0 ? 6 : 0,
+                  }}
+                  animate={{ width: `${sessionProgress * 100}%` }}
                   transition={{ type: 'spring', stiffness: 80 }}
                 />
               </div>
@@ -513,6 +583,52 @@ export default function WorkoutScreen() {
           </div>
         </motion.div>
       </AnimatePresence>
+
+      <AnimatePresence>
+        {showPreAnimation && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            className="rounded-xl px-3 py-2 text-xs font-bold surface-2026-soft"
+            style={{ background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.35)', color: '#38BDF8' }}
+          >
+            ⚡ Pre-work complete. Main phase activated.
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showPostAnimation && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: [1, 1.03, 1] }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            transition={{ duration: 0.9 }}
+            className="rounded-xl px-3 py-2 text-xs font-black uppercase tracking-widest surface-2026-soft"
+            style={{ background: 'rgba(0,245,212,0.12)', border: '1px solid rgba(0,245,212,0.35)', color: '#00F5D4' }}
+          >
+            🎉 Post-workout complete. Streak protected.
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <QuestPath
+        title="Session Quest Path"
+        titleColor="#CBD5E1"
+        background="rgba(12,12,30,0.7)"
+        borderColor="rgba(255,255,255,0.08)"
+        hint={phaseHint}
+        steps={phasePath.map((phase) => ({
+          id: phase.id,
+          icon: phase.icon,
+          title: phase.title,
+          subtitle: phase.subtitle,
+          done: phase.done,
+          active: phase.active,
+          doneColor: phase.color,
+        }))}
+      />
 
       <div className="rounded-2xl px-3 py-2 text-[10px] text-gray-500" style={{ background: 'rgba(12,12,30,0.55)', border: '1px solid rgba(255,255,255,0.05)' }}>
         Session Flow: Phase 1 warm-up + dynamic stretch → Phase 2 main workout → Phase 3 static stretch cool-down.
@@ -600,7 +716,7 @@ export default function WorkoutScreen() {
 
       {sessionComplete ? (
         <motion.div
-          className="rounded-2xl p-5 text-center"
+          className="rounded-2xl p-5 text-center surface-2026"
           style={{ background: 'linear-gradient(135deg, rgba(0,245,212,0.08), rgba(6,6,15,0.95))', border: '1px solid rgba(0,245,212,0.4)', boxShadow: '0 0 30px rgba(0,245,212,0.1)' }}
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -610,20 +726,22 @@ export default function WorkoutScreen() {
           <p className="text-xs text-gray-400 mt-1">Gym workout marked done for today. 💪</p>
         </motion.div>
       ) : (
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          onClick={handleCompleteSession}
-          className="w-full py-4 rounded-2xl font-black text-base"
-          style={{
-            background: `linear-gradient(135deg, ${session.color}, ${session.color}cc)`,
-            color: '#06060F',
-            boxShadow: `0 4px 24px ${session.color}40, 0 0 60px ${session.color}15`,
-          }}
-        >
-          {doneSets >= Math.floor(totalSets * 0.8)
-            ? '🏆 Finish Session & Log Workout!'
-            : `Complete Session — ${doneSets}/${totalSets} sets done`}
-        </motion.button>
+        <div className="sticky bottom-3 z-20">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={handleCompleteSession}
+            className="w-full py-4 rounded-2xl font-black text-base interactive-press"
+            style={{
+              background: `linear-gradient(135deg, ${session.color}, ${session.color}cc)`,
+              color: '#06060F',
+              boxShadow: `0 4px 24px ${session.color}40, 0 0 60px ${session.color}15`,
+            }}
+          >
+            {doneSets >= Math.floor(totalSets * 0.8)
+              ? '🏆 Finish Session & Log Workout!'
+              : `Complete Session — ${doneSets}/${totalSets} sets done`}
+          </motion.button>
+        </div>
       )}
     </div>
   );

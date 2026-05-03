@@ -74,7 +74,7 @@ export default function LandingPage() {
       <header className="relative z-10">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6 md:px-10">
           <Link href="/" className="landing-reveal flex items-center gap-3" style={{ animationDelay: '80ms' }}>
-            <Image src="/logo.png" alt="GrindOs" width={42} height={42} className="h-10 w-auto" priority />
+            <Image src="/grindos-logo.svg" alt="GrindOs" width={42} height={42} className="h-10 w-auto" priority />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">GrindOs</p>
               <p
@@ -297,4 +297,3 @@ export default function LandingPage() {
     </div>
   );
 }
-

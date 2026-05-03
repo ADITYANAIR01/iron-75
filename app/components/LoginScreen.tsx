@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from './AuthProvider';
+import FireIcon from './FireIcon';
 
 export default function LoginScreen() {
   const { signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
@@ -60,13 +61,7 @@ export default function LoginScreen() {
       >
         {/* Logo & Title */}
         <div className="text-center">
-          <motion.div
-            className="text-6xl mb-3"
-            animate={{ rotate: [0, 10, -10, 0] }}
-            transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
-          >
-            🔥
-          </motion.div>
+          <FireIcon className="mb-3" sizeClassName="text-6xl" />
           <h1 className="text-3xl font-black" style={{ background: 'linear-gradient(135deg, #FF6B35, #FFE66D)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>GRINDOS</h1>
           <p className="text-sm text-gray-500 mt-1">Simple Habit Tracker + Gym Logger</p>
         </div>

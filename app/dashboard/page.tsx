@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import { TabId } from '../lib/types';
 import { AuthProvider, useAuth } from '../components/AuthProvider';
+import FireIcon from '../components/FireIcon';
 import { syncFromSupabase, getAppState, isWrappedShown, markWrappedShown as markWrappedShownStorage, localDateString } from '../lib/storage';
 
 const STALE_BUNDLE_RELOAD_KEY = 'iron75_stale_bundle_reload_once';
@@ -41,7 +42,7 @@ const TodayScreen = dynamic(() => import('../components/TodayScreen'), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-64">
-      <motion.div className="text-5xl" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>🔥</motion.div>
+      <FireIcon sizeClassName="text-5xl" />
     </div>
   ),
 });
@@ -75,7 +76,7 @@ function AuthGate() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-dvh" style={{ background: '#06060F' }}>
-        <motion.div className="text-5xl" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>🔥</motion.div>
+        <FireIcon sizeClassName="text-5xl" />
       </div>
     );
   }
@@ -175,7 +176,7 @@ function AppShell() {
           {/* Logo */}
           <div className="flex items-center gap-2 px-3 mb-6">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="GrindOs" className="h-8 w-auto object-contain" />
+            <img src="/grindos-logo.svg" alt="GrindOs" className="h-8 w-auto object-contain" />
             <div>
               <p className="font-black text-sm text-white leading-none">GRINDOS</p>
               <p className="text-xs text-gray-500">Habit + Gym</p>
@@ -244,7 +245,7 @@ function AppShell() {
           >
             <div className="flex items-center gap-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.png" alt="GrindOs logo" className="h-9 w-auto object-contain" />
+              <img src="/grindos-logo.svg" alt="GrindOs logo" className="h-9 w-auto object-contain" />
             </div>
             <motion.button
               onClick={() => {
@@ -308,7 +309,7 @@ function AppShell() {
         >
           {!syncReady ? (
             <div className="flex items-center justify-center h-64">
-              <motion.div className="text-5xl" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>🔥</motion.div>
+              <FireIcon sizeClassName="text-5xl" />
             </div>
           ) : (
           <AnimatePresence mode="wait" initial={false}>
@@ -404,4 +405,3 @@ function AppShell() {
     </div>
   );
 }
-
