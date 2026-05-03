@@ -21,12 +21,16 @@ import {
   formatReminderTimeLabel,
   getDailyReminderSettings,
   getMillisecondsUntilReminder,
+  getLastReminderSentDate,
   getNextReminderTrigger,
   getNotificationPermissionStatus,
   isNotificationApiSupported,
+  markReminderSentToday,
   normalizeReminderTime,
   requestNotificationPermission,
   saveDailyReminderSettings,
+  shouldSendReminderNow,
+  showReminderNotification,
 } from '../lib/notifications';
 import { useAuth } from './AuthProvider';
 
@@ -58,6 +62,8 @@ export default function SettingsScreen() {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>('unsupported');
   const [toast, setToast] = useState('');
   const reminderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reminderHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reminderDeliveryInFlightRef = useRef(false);
   const reminderSettingsRef = useRef(dailyReminder);
   reminderSettingsRef.current = dailyReminder;
 
@@ -99,6 +105,10 @@ export default function SettingsScreen() {
       clearTimeout(reminderTimerRef.current);
       reminderTimerRef.current = null;
     }
+    if (reminderHeartbeatRef.current !== null) {
+      clearInterval(reminderHeartbeatRef.current);
+      reminderHeartbeatRef.current = null;
+    }
   };
 
   const persistDailyReminder = (next: DailyReminderSettings) => {
@@ -118,32 +128,49 @@ export default function SettingsScreen() {
       };
     }
 
-    const scheduleNext = () => {
-      if (cancelled) return;
-      const delay = getMillisecondsUntilReminder(reminderSettingsRef.current.time);
-      reminderTimerRef.current = setTimeout(() => {
-        if (cancelled) return;
-
+    const maybeDeliverReminder = async () => {
+      if (cancelled || reminderDeliveryInFlightRef.current) return;
+      reminderDeliveryInFlightRef.current = true;
+      try {
         const latestPermission = getNotificationPermissionStatus();
         setNotificationPermission(latestPermission);
         if (latestPermission !== 'granted' || !reminderSettingsRef.current.enabled || !isNotificationApiSupported()) {
           return;
         }
+        const now = new Date();
+        const lastSentDate = getLastReminderSentDate();
+        if (!shouldSendReminderNow(reminderSettingsRef.current.time, now, lastSentDate)) {
+          return;
+        }
 
-        const notification = new Notification('GRINDOS reminder', {
+        const delivered = await showReminderNotification({
+          title: 'GRINDOS reminder',
           body: 'Log today’s progress to protect your streak 🔥',
           tag: 'grindos-daily-reminder',
         });
-        notification.onclick = () => {
-          window.focus();
-          notification.close();
-        };
+        if (delivered) {
+          markReminderSentToday({ now });
+        }
+      } finally {
+        reminderDeliveryInFlightRef.current = false;
+      }
+    };
 
+    const scheduleNext = () => {
+      if (cancelled) return;
+      const delay = getMillisecondsUntilReminder(reminderSettingsRef.current.time);
+      reminderTimerRef.current = setTimeout(async () => {
+        if (cancelled) return;
+        await maybeDeliverReminder();
         scheduleNext();
       }, delay);
     };
 
+    void maybeDeliverReminder();
     scheduleNext();
+    reminderHeartbeatRef.current = setInterval(() => {
+      void maybeDeliverReminder();
+    }, 60_000);
     return () => {
       cancelled = true;
       clearReminderTimer();
@@ -303,7 +330,7 @@ export default function SettingsScreen() {
     showTransientToast('Reminder saved locally. Allow notifications to receive alerts.', 3500);
   };
 
-  const handleSendTestReminder = () => {
+  const handleSendTestReminder = async () => {
     const permission = getNotificationPermissionStatus();
     setNotificationPermission(permission);
     if (permission !== 'granted' || !isNotificationApiSupported()) {
@@ -311,14 +338,15 @@ export default function SettingsScreen() {
       return;
     }
 
-    const notification = new Notification('GRINDOS reminder', {
+    const delivered = await showReminderNotification({
+      title: 'GRINDOS reminder',
       body: `Test reminder set for ${formatReminderTimeLabel(dailyReminder.time)}.`,
       tag: 'grindos-daily-reminder-test',
     });
-    notification.onclick = () => {
-      window.focus();
-      notification.close();
-    };
+    if (!delivered) {
+      showTransientToast('Could not send test reminder in this browser.', 3200);
+      return;
+    }
     showTransientToast('Test reminder sent.');
   };
 

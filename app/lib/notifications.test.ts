@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DAILY_REMINDER_LAST_SENT_DATE_KEY,
   DAILY_REMINDER_SETTINGS_KEY,
   DEFAULT_DAILY_REMINDER_TIME,
   getDailyReminderSettings,
+  getLastReminderSentDate,
+  markReminderSentToday,
   getNextReminderTrigger,
   isNotificationApiSupported,
   normalizeReminderTime,
   parseReminderTime,
   requestNotificationPermission,
   saveDailyReminderSettings,
+  shouldSendReminderNow,
+  showReminderNotification,
   type ReminderStorage,
 } from './notifications';
 
@@ -112,5 +117,84 @@ describe('notifications helpers', () => {
   it('detects unsupported notification environments safely', async () => {
     expect(isNotificationApiSupported({})).toBe(false);
     await expect(requestNotificationPermission({})).resolves.toBe('unsupported');
+  });
+
+  it('tracks reminder delivery date and sends only once per day after target time', () => {
+    const storage = createMemoryStorage();
+    const morning = new Date(2026, 2, 12, 8, 10, 0, 0);
+    const evening = new Date(2026, 2, 12, 20, 10, 0, 0);
+
+    expect(shouldSendReminderNow('09:00', morning, '')).toBe(false);
+    expect(shouldSendReminderNow('09:00', evening, '')).toBe(true);
+
+    const dateKey = markReminderSentToday({ storage, now: evening });
+    expect(dateKey).toBe('2026-03-12');
+    expect(getLastReminderSentDate({ storage })).toBe('2026-03-12');
+    expect(shouldSendReminderNow('09:00', evening, dateKey)).toBe(false);
+    expect(storage.getItem(DAILY_REMINDER_LAST_SENT_DATE_KEY)).toBe('2026-03-12');
+  });
+
+  it('shows reminders through service worker when available', async () => {
+    const calls: Array<{ title: string; options: NotificationOptions }> = [];
+    const target = {
+      Notification: {
+        permission: 'granted' as const,
+        requestPermission: () => 'granted' as const,
+      },
+      navigator: {
+        serviceWorker: {
+          ready: Promise.resolve({
+            showNotification: (title: string, options: NotificationOptions) => {
+              calls.push({ title, options });
+              return Promise.resolve();
+            },
+          }),
+        },
+      },
+    };
+
+    await expect(
+      showReminderNotification(
+        {
+          title: 'GRINDOS reminder',
+          body: 'Body',
+          tag: 'daily',
+        },
+        target
+      )
+    ).resolves.toBe(true);
+    expect(calls).toEqual([{ title: 'GRINDOS reminder', options: { body: 'Body', tag: 'daily' } }]);
+  });
+
+  it('falls back to Notification constructor when service worker notification is unavailable', async () => {
+    const calls: Array<{ title: string; options: NotificationOptions | undefined }> = [];
+    class NotificationMock {
+      static permission: NotificationPermission = 'granted';
+      static requestPermission = () => 'granted' as const;
+      constructor(title: string, options?: NotificationOptions) {
+        calls.push({ title, options });
+      }
+    }
+
+    const target = {
+      Notification: NotificationMock,
+      navigator: {
+        serviceWorker: {
+          ready: Promise.resolve({}),
+        },
+      },
+    };
+
+    await expect(
+      showReminderNotification(
+        {
+          title: 'GRINDOS reminder',
+          body: 'Fallback body',
+          tag: 'fallback',
+        },
+        target
+      )
+    ).resolves.toBe(true);
+    expect(calls).toEqual([{ title: 'GRINDOS reminder', options: { body: 'Fallback body', tag: 'fallback' } }]);
   });
 });

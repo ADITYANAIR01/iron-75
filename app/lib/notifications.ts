@@ -12,11 +12,18 @@ export interface DailyReminderSettings {
 export type NotificationPermissionState = NotificationPermission | 'unsupported';
 
 export const DAILY_REMINDER_SETTINGS_KEY = 'iron75_daily_reminder_settings';
+export const DAILY_REMINDER_LAST_SENT_DATE_KEY = 'iron75_daily_reminder_last_sent_date';
 export const DEFAULT_DAILY_REMINDER_TIME = '22:00';
 
 interface NotificationApiLike {
   permission: NotificationPermission;
   requestPermission: (...args: never[]) => NotificationPermission | Promise<NotificationPermission>;
+}
+
+export interface ReminderNotificationPayload {
+  title: string;
+  body: string;
+  tag: string;
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -149,6 +156,56 @@ export function getMillisecondsUntilReminder(time: string, now: Date = new Date(
   return Math.max(60_000, delta);
 }
 
+function formatLocalDateKey(now: Date): string {
+  const safeNow = Number.isNaN(now.getTime()) ? new Date() : now;
+  const year = safeNow.getFullYear();
+  const month = String(safeNow.getMonth() + 1).padStart(2, '0');
+  const day = String(safeNow.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getLastReminderSentDate(options: { storage?: ReminderStorage | null } = {}): string {
+  const storage = resolveStorage(options.storage);
+  if (!storage) return '';
+  try {
+    const raw = storage.getItem(DAILY_REMINDER_LAST_SENT_DATE_KEY);
+    if (!raw) return '';
+    return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+  } catch {
+    return '';
+  }
+}
+
+export function markReminderSentToday(
+  options: { storage?: ReminderStorage | null; now?: Date } = {}
+): string {
+  const now = options.now ?? new Date();
+  const dateKey = formatLocalDateKey(now);
+  const storage = resolveStorage(options.storage);
+  if (storage) {
+    try {
+      storage.setItem(DAILY_REMINDER_LAST_SENT_DATE_KEY, dateKey);
+    } catch {
+      // Ignore local persistence failures.
+    }
+  }
+  return dateKey;
+}
+
+export function shouldSendReminderNow(
+  time: string,
+  now: Date = new Date(),
+  lastSentDate: string = ''
+): boolean {
+  const safeNow = Number.isNaN(now.getTime()) ? new Date() : now;
+  const parsed = parseReminderTime(normalizeReminderTime(time)) ?? parseReminderTime(DEFAULT_DAILY_REMINDER_TIME)!;
+  const today = formatLocalDateKey(safeNow);
+  if (lastSentDate === today) return false;
+  const minutesNow = safeNow.getHours() * 60 + safeNow.getMinutes();
+  const reminderMinutes = parsed.hour * 60 + parsed.minute;
+  return minutesNow >= reminderMinutes;
+}
+
 export function isNotificationApiSupported(target: unknown = globalThis): boolean {
   return resolveNotificationApi(target) !== null;
 }
@@ -173,5 +230,54 @@ export async function requestNotificationPermission(target: unknown = globalThis
     return getNotificationPermissionStatus(target);
   } catch {
     return getNotificationPermissionStatus(target);
+  }
+}
+
+function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
+  return typeof (value as PromiseLike<T> | null | undefined)?.then === 'function';
+}
+
+export async function showReminderNotification(
+  payload: ReminderNotificationPayload,
+  target: unknown = globalThis
+): Promise<boolean> {
+  const source = asObject(target);
+  if (!source) return false;
+
+  const permission = getNotificationPermissionStatus(target);
+  if (permission !== 'granted') return false;
+
+  const navigatorLike = asObject(source.navigator);
+  const serviceWorkerLike = asObject(navigatorLike?.serviceWorker);
+  const ready = serviceWorkerLike?.ready;
+  if (isPromiseLike<unknown>(ready)) {
+    try {
+      const registration = await ready;
+      const registrationLike = asObject(registration);
+      const showNotification = registrationLike?.showNotification;
+      if (typeof showNotification === 'function') {
+        await showNotification.call(registration, payload.title, {
+          body: payload.body,
+          tag: payload.tag,
+        });
+        return true;
+      }
+    } catch {
+      // Fall back to Notification constructor when service worker notification fails.
+    }
+  }
+
+  try {
+    const NotificationCtor = source.Notification as
+      | (new (title: string, options?: NotificationOptions) => Notification)
+      | undefined;
+    if (typeof NotificationCtor !== 'function') return false;
+    new NotificationCtor(payload.title, {
+      body: payload.body,
+      tag: payload.tag,
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
