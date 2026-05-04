@@ -1,5 +1,6 @@
 import { SessionSpec, ExerciseSpec } from './pplData';
 import { createClient } from './supabase';
+import { disableCloudSync, isCloudSyncDisabled } from './cloudSync';
 
 const CUSTOM_SESSIONS_KEY = 'iron75_custom_sessions';
 const DAY_ASSIGNMENTS_KEY = 'iron75_day_assignments';
@@ -11,6 +12,12 @@ type SupabaseErrorLike = { message?: string; code?: string };
 function isRlsError(error: SupabaseErrorLike | null | undefined): boolean {
   if (!error) return false;
   return error.code === '42501' || (error.message ?? '').toLowerCase().includes('row-level security policy');
+}
+
+function isMissingTableError(error: SupabaseErrorLike | null | undefined): boolean {
+  if (!error) return false;
+  const message = (error.message ?? '').toLowerCase();
+  return message.includes('schema cache') || message.includes('could not find the table') || (message.includes('relation') && message.includes('does not exist'));
 }
 
 export interface CustomExercise {
@@ -56,7 +63,7 @@ export const MUSCLE_GROUPS = [
 ];
 
 export const EXERCISE_EMOJIS: Record<string, string> = {
-  Chest: '🫁',
+  Chest: '🏋️',
   Back: '🔙',
   Shoulders: '🎯',
   Biceps: '💪',
@@ -248,6 +255,7 @@ export function saveDayAssignments(assignments: DayAssignments): void {
 
 async function syncCustomWorkoutsToSupabase(): Promise<void> {
   try {
+    if (isCloudSyncDisabled()) return;
     const supabase = createClient();
     const {
       data: { user },
@@ -264,6 +272,11 @@ async function syncCustomWorkoutsToSupabase(): Promise<void> {
       { onConflict: 'user_id' }
     );
 
+    if (isMissingTableError(error)) {
+      disableCloudSync('missing_schema');
+      return;
+    }
+
     if (isRlsError(error)) {
       console.warn('Supabase custom workout sync blocked by RLS. Re-run Docs/supabase.sql policies.');
     }
@@ -274,6 +287,7 @@ async function syncCustomWorkoutsToSupabase(): Promise<void> {
 
 export async function syncCustomWorkoutsFromSupabase(): Promise<void> {
   try {
+    if (isCloudSyncDisabled()) return;
     const supabase = createClient();
     const {
       data: { user },
@@ -286,6 +300,10 @@ export async function syncCustomWorkoutsFromSupabase(): Promise<void> {
       .eq('user_id', user.id)
       .single();
 
+    if (isMissingTableError(error)) {
+      disableCloudSync('missing_schema');
+      return;
+    }
     if (error || !row || typeof window === 'undefined') return;
 
     const cloudSessions = normalizeSessionCollection(row.custom_sessions);

@@ -566,7 +566,7 @@ Coach response cache:
 
 ### 11.2 Service Worker
 `public/sw.js`:
-- precaches `/`, `/manifest.json`, `/logo.png`
+- precaches `/`, `/manifest.json`, `/grindos-logo.svg`
 - static cache-first for assets
 - API network-first (no caching)
 - page navigation network-first with cache fallback

@@ -6,6 +6,7 @@
 
 import { DailyLog, AppState, MoodEmoji, ExerciseState, UserFocus } from './types';
 import { createClient } from './supabase';
+import { disableCloudSync, isCloudSyncDisabled } from './cloudSync';
 import { syncCustomWorkoutsFromSupabase } from './customWorkouts';
 
 // ── Key helpers ───────────────────────────────────────────────────────────────
@@ -65,6 +66,12 @@ type SupabaseErrorLike = { message?: string; code?: string } | null | undefined;
 function isRlsPolicyError(error: SupabaseErrorLike): boolean {
   if (!error) return false;
   return error.code === '42501' || (error.message ?? '').toLowerCase().includes('row-level security policy');
+}
+
+function isMissingTableError(error: SupabaseErrorLike): boolean {
+  if (!error) return false;
+  const message = (error.message ?? '').toLowerCase();
+  return message.includes('schema cache') || message.includes('could not find the table') || message.includes('relation') && message.includes('does not exist');
 }
 
 function logRlsBlockedWrite(scope: string, message?: string): void {
@@ -218,6 +225,7 @@ export function saveAppState(state: AppState): void {
 
 async function syncAppStateToSupabase(state: AppState, updatedAt?: string): Promise<void> {
   try {
+    if (isCloudSyncDisabled()) return;
     const userId = await getSupabaseUserId();
     if (!userId) {
       addToPendingSync({ type: 'app_state', key: 'app_state' });
@@ -239,6 +247,11 @@ async function syncAppStateToSupabase(state: AppState, updatedAt?: string): Prom
       { onConflict: 'user_id' }
     );
     if (error) {
+      if (isMissingTableError(error)) {
+        disableCloudSync('missing_schema');
+        removeFromPendingSync({ type: 'app_state', key: 'app_state' });
+        return;
+      }
       if (isRlsPolicyError(error)) {
         logRlsBlockedWrite('app_state', error.message);
         removeFromPendingSync({ type: 'app_state', key: 'app_state' });
@@ -300,6 +313,7 @@ export function saveDailyLog(log: DailyLog): void {
 
 async function syncDailyLogToSupabase(log: DailyLog, updatedAt?: string): Promise<void> {
   try {
+    if (isCloudSyncDisabled()) return;
     const userId = await getSupabaseUserId();
     if (!userId) {
       addToPendingSync({ type: 'daily_log', key: log.date });
@@ -329,6 +343,11 @@ async function syncDailyLogToSupabase(log: DailyLog, updatedAt?: string): Promis
       { onConflict: 'user_id,date' }
     );
     if (error) {
+      if (isMissingTableError(error)) {
+        disableCloudSync('missing_schema');
+        removeFromPendingSync({ type: 'daily_log', key: log.date });
+        return;
+      }
       if (isRlsPolicyError(error)) {
         logRlsBlockedWrite('daily_logs', error.message);
         removeFromPendingSync({ type: 'daily_log', key: log.date });
@@ -394,6 +413,7 @@ export function markWrappedShown(weekNum: number): void {
 
 async function syncWrappedShownToSupabase(weeks: number[]): Promise<void> {
   try {
+    if (isCloudSyncDisabled()) return;
     const userId = await getSupabaseUserId();
     if (!userId) return;
     const supabase = createClient();
@@ -429,8 +449,10 @@ export function saveWorkoutState(
   const now = new Date().toISOString();
   localStorage.setItem(KEYS.WORKOUT_STATE(date, sessionKey), JSON.stringify(exercises));
   localStorage.setItem(KEYS.WORKOUT_TS(date, sessionKey), now);
-  if (completed) {
+  if (completed === true) {
     localStorage.setItem(KEYS.WORKOUT_COMPLETE(date, sessionKey), '1');
+  } else if (completed === false) {
+    localStorage.removeItem(KEYS.WORKOUT_COMPLETE(date, sessionKey));
   }
   syncWorkoutToSupabase(date, sessionKey, exercises, completed ?? isWorkoutComplete(date, sessionKey), now);
 }
@@ -453,6 +475,7 @@ async function syncWorkoutToSupabase(
 ): Promise<void> {
   const pendingKey = `${date}_${sessionKey}`;
   try {
+    if (isCloudSyncDisabled()) return;
     const userId = await getSupabaseUserId();
     if (!userId) {
       addToPendingSync({ type: 'workout_state', key: pendingKey });
@@ -515,6 +538,11 @@ async function syncWorkoutToSupabase(
         removeFromPendingSync({ type: 'workout_state', key: pendingKey });
         return;
       }
+      if (isMissingTableError(error)) {
+        disableCloudSync('missing_schema');
+        removeFromPendingSync({ type: 'workout_state', key: pendingKey });
+        return;
+      }
       console.warn('Supabase workout_sessions upsert error:', error.message);
       addToPendingSync({ type: 'workout_state', key: pendingKey });
     } else {
@@ -528,6 +556,7 @@ async function syncWorkoutToSupabase(
 
 export async function syncFromSupabase(): Promise<void> {
   try {
+    if (isCloudSyncDisabled()) return;
     const userId = await getSupabaseUserId();
     if (!userId) return;
     ensureActiveUserContext(userId);
@@ -542,6 +571,8 @@ export async function syncFromSupabase(): Promise<void> {
       .select('*')
       .eq('user_id', userId)
       .single();
+
+    if (isCloudSyncDisabled()) return;
 
     const localAppStateUpdatedAt = typeof window !== 'undefined'
       ? localStorage.getItem(KEYS.APP_STATE_UPDATED_AT) ?? ''
@@ -584,6 +615,8 @@ export async function syncFromSupabase(): Promise<void> {
       .from('daily_logs')
       .select('*')
       .eq('user_id', userId);
+
+    if (isCloudSyncDisabled()) return;
 
     // Build a map of cloud logs by date
     const cloudLogMap = new Map<string, typeof cloudLogs extends (infer T)[] | null ? T : never>();
@@ -672,6 +705,8 @@ export async function syncFromSupabase(): Promise<void> {
       .select('display_name')
       .eq('id', userId)
       .single();
+
+    if (isCloudSyncDisabled()) return;
 
     if (profile?.display_name) {
       localStorage.setItem('iron75_user_name', profile.display_name);
@@ -1029,7 +1064,7 @@ export async function recoverStreakFromLogs(): Promise<AppState | null> {
 
     // Walk backwards from yesterday to find the streak end point
     let streakEnd: string | null = null;
-    let d = new Date(today + 'T12:00:00');
+    const d = new Date(today + 'T12:00:00');
     d.setDate(d.getDate() - 1);
     // If today itself is already complete, count it too
     if (completedSet.has(today)) {
@@ -1048,7 +1083,7 @@ export async function recoverStreakFromLogs(): Promise<AppState | null> {
 
     // Walk backwards from streakEnd to find streak start
     let streakCount = 0;
-    let cursor = new Date(streakEnd + 'T12:00:00');
+    const cursor = new Date(streakEnd + 'T12:00:00');
     while (completedSet.has(localDateString(cursor))) {
       streakCount += 1;
       cursor.setDate(cursor.getDate() - 1);

@@ -14,6 +14,7 @@ import {
 } from '../lib/storage';
 import { AppState, UserFocus } from '../lib/types';
 import { getLocalDataHealthSnapshot, LocalDataHealthSnapshot } from '../lib/dataHealth';
+import { getCloudSyncDisabledState } from '../lib/cloudSync';
 import {
   DailyReminderSettings,
   NotificationPermissionState,
@@ -28,10 +29,13 @@ import {
   markReminderSentToday,
   normalizeReminderTime,
   requestNotificationPermission,
+  releaseReminderDeliveryLock,
   saveDailyReminderSettings,
   shouldSendReminderNow,
   showReminderNotification,
+  tryAcquireReminderDeliveryLock,
 } from '../lib/notifications';
+import { getSupabaseConfigError } from '../lib/supabase';
 import { useAuth } from './AuthProvider';
 
 const REMINDER_TIME_PRESETS = ['07:00', '12:00', '18:00', '22:00'] as const;
@@ -64,6 +68,7 @@ export default function SettingsScreen() {
   const reminderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reminderHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reminderDeliveryInFlightRef = useRef(false);
+  const reminderTabIdRef = useRef(`tab-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
   const reminderSettingsRef = useRef(dailyReminder);
   reminderSettingsRef.current = dailyReminder;
 
@@ -131,6 +136,12 @@ export default function SettingsScreen() {
     const maybeDeliverReminder = async () => {
       if (cancelled || reminderDeliveryInFlightRef.current) return;
       reminderDeliveryInFlightRef.current = true;
+      const lockOwner = reminderTabIdRef.current;
+      const hasLock = tryAcquireReminderDeliveryLock(lockOwner);
+      if (!hasLock) {
+        reminderDeliveryInFlightRef.current = false;
+        return;
+      }
       try {
         const latestPermission = getNotificationPermissionStatus();
         setNotificationPermission(latestPermission);
@@ -152,6 +163,7 @@ export default function SettingsScreen() {
           markReminderSentToday({ now });
         }
       } finally {
+        releaseReminderDeliveryLock(lockOwner);
         reminderDeliveryInFlightRef.current = false;
       }
     };
@@ -368,6 +380,28 @@ export default function SettingsScreen() {
       : notificationPermission === 'default'
         ? { label: 'Ask me', color: '#94A3B8', background: 'rgba(148,163,184,0.14)', border: 'rgba(148,163,184,0.35)' }
         : { label: 'Unsupported', color: '#94A3B8', background: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.28)' };
+  const supabaseConfigError = getSupabaseConfigError();
+  const cloudSyncDisabledState = getCloudSyncDisabledState();
+  const supabaseHealth = supabaseConfigError
+    ? { label: 'Missing env', detail: 'Supabase env vars are missing. App is running local-only.', color: '#FFE66D' }
+    : cloudSyncDisabledState
+      ? { label: 'Local-only', detail: 'Cloud sync is paused because the remote schema is not available.', color: '#FF6B35' }
+      : { label: 'Configured', detail: 'Supabase environment variables are present.', color: '#00F5D4' };
+  const reminderSummary = dailyReminder.enabled
+    ? `Enabled · ${permissionBadge.label} · ${nextReminderLabel}`
+    : `Disabled · ${permissionBadge.label}`;
+  const pendingSyncCount = dataHealth?.pendingSyncCount;
+  const syncHealthSummary = supabaseConfigError
+    ? 'Cloud sync unavailable: missing Supabase env. Data is local-only.'
+    : cloudSyncDisabledState
+      ? 'Cloud sync paused because the remote schema is unavailable. Local data continues to work.'
+    : !user
+      ? 'Cloud sync ready after sign-in. Current view uses local data signals.'
+      : pendingSyncCount === undefined
+        ? 'Local sync queue signal is unavailable right now.'
+        : pendingSyncCount > 0
+          ? `${pendingSyncCount} item${pendingSyncCount === 1 ? '' : 's'} waiting in local sync queue.`
+          : 'No pending items in the local sync queue.';
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
@@ -459,6 +493,42 @@ export default function SettingsScreen() {
           </div>
         </motion.div>
       )}
+
+      {/* System Health */}
+      <motion.div
+        className="rounded-2xl p-5"
+        style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.17 }}
+      >
+        <h2 className="font-bold text-sm text-gray-300 uppercase tracking-wide mb-3">System Health</h2>
+        <div className="flex flex-col gap-2">
+          <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-gray-300">Supabase config</p>
+              <span className="text-xs font-semibold" style={{ color: supabaseHealth.color }}>{supabaseHealth.label}</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{supabaseHealth.detail}</p>
+          </div>
+          <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-gray-300">Reminder status</p>
+              <span className="text-xs font-semibold" style={{ color: dailyReminder.enabled ? '#00F5D4' : '#94A3B8' }}>
+                {dailyReminder.enabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{reminderSummary}</p>
+          </div>
+          <div className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-gray-300">Data flow &amp; sync</p>
+              <span className="text-xs font-semibold" style={{ color: '#94A3B8' }}>Local signal</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{syncHealthSummary}</p>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Notifications */}
       <motion.div

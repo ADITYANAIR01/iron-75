@@ -1,6 +1,7 @@
 export interface ReminderStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
 }
 
 export interface DailyReminderSettings {
@@ -13,7 +14,9 @@ export type NotificationPermissionState = NotificationPermission | 'unsupported'
 
 export const DAILY_REMINDER_SETTINGS_KEY = 'iron75_daily_reminder_settings';
 export const DAILY_REMINDER_LAST_SENT_DATE_KEY = 'iron75_daily_reminder_last_sent_date';
+export const DAILY_REMINDER_DELIVERY_LOCK_KEY = 'iron75_daily_reminder_delivery_lock';
 export const DEFAULT_DAILY_REMINDER_TIME = '22:00';
+const DEFAULT_REMINDER_LOCK_TTL_MS = 90_000;
 
 interface NotificationApiLike {
   permission: NotificationPermission;
@@ -204,6 +207,72 @@ export function shouldSendReminderNow(
   const minutesNow = safeNow.getHours() * 60 + safeNow.getMinutes();
   const reminderMinutes = parsed.hour * 60 + parsed.minute;
   return minutesNow >= reminderMinutes;
+}
+
+interface ReminderDeliveryLock {
+  ownerId: string;
+  expiresAt: number;
+}
+
+function parseReminderDeliveryLock(raw: string | null): ReminderDeliveryLock | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ReminderDeliveryLock>;
+    if (typeof parsed.ownerId !== 'string') return null;
+    if (typeof parsed.expiresAt !== 'number' || !Number.isFinite(parsed.expiresAt)) return null;
+    return { ownerId: parsed.ownerId, expiresAt: parsed.expiresAt };
+  } catch {
+    return null;
+  }
+}
+
+export function tryAcquireReminderDeliveryLock(
+  ownerId: string,
+  options: { storage?: ReminderStorage | null; now?: Date; ttlMs?: number } = {}
+): boolean {
+  if (!ownerId.trim()) return false;
+
+  const storage = resolveStorage(options.storage);
+  if (!storage) return true;
+
+  const now = options.now ?? new Date();
+  const nowMs = Number.isNaN(now.getTime()) ? Date.now() : now.getTime();
+  const ttlMs = Math.max(10_000, options.ttlMs ?? DEFAULT_REMINDER_LOCK_TTL_MS);
+  const current = parseReminderDeliveryLock(storage.getItem(DAILY_REMINDER_DELIVERY_LOCK_KEY));
+
+  const isHeldByOther = current && current.ownerId !== ownerId && current.expiresAt > nowMs;
+  if (isHeldByOther) return false;
+
+  const next: ReminderDeliveryLock = {
+    ownerId,
+    expiresAt: nowMs + ttlMs,
+  };
+  try {
+    storage.setItem(DAILY_REMINDER_DELIVERY_LOCK_KEY, JSON.stringify(next));
+    const stored = parseReminderDeliveryLock(storage.getItem(DAILY_REMINDER_DELIVERY_LOCK_KEY));
+    return stored?.ownerId === ownerId;
+  } catch {
+    return true;
+  }
+}
+
+export function releaseReminderDeliveryLock(
+  ownerId: string,
+  options: { storage?: ReminderStorage | null } = {}
+): void {
+  const storage = resolveStorage(options.storage);
+  if (!storage) return;
+  const current = parseReminderDeliveryLock(storage.getItem(DAILY_REMINDER_DELIVERY_LOCK_KEY));
+  if (!current || current.ownerId !== ownerId) return;
+  try {
+    if (typeof storage.removeItem === 'function') {
+      storage.removeItem(DAILY_REMINDER_DELIVERY_LOCK_KEY);
+    } else {
+      storage.setItem(DAILY_REMINDER_DELIVERY_LOCK_KEY, '');
+    }
+  } catch {
+    // Ignore local persistence failures.
+  }
 }
 
 export function isNotificationApiSupported(target: unknown = globalThis): boolean {

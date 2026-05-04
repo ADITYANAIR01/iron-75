@@ -285,7 +285,7 @@ export default function CelebrationOverlay({
                   style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
                   initial={{ scale: 0 }}
                   animate={{ scale: [1, 1.07, 1] }}
-                  transition={{ delay: 0.6 + i * 0.08, type: 'spring', stiffness: 300 }}
+                  transition={{ delay: 0.6 + i * 0.08, duration: 0.45, ease: 'easeOut' }}
                 >
                   {icon}
                 </motion.span>

@@ -7,6 +7,7 @@ import { TabId } from '../lib/types';
 import { AuthProvider, useAuth } from '../components/AuthProvider';
 import FireIcon from '../components/FireIcon';
 import { syncFromSupabase, getAppState, isWrappedShown, markWrappedShown as markWrappedShownStorage, localDateString } from '../lib/storage';
+import { DASHBOARD_TAB_EVENT } from '../lib/uiEvents';
 
 const STALE_BUNDLE_RELOAD_KEY = 'iron75_stale_bundle_reload_once';
 
@@ -130,6 +131,15 @@ function AppShell() {
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tab?: TabId }>).detail;
+      if (detail?.tab) setActiveTab(detail.tab);
+    };
+    window.addEventListener(DASHBOARD_TAB_EVENT, handler);
+    return () => window.removeEventListener(DASHBOARD_TAB_EVENT, handler);
   }, []);
 
   // Sync cloud → localStorage FIRST, then check for wrapped.

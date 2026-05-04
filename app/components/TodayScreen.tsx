@@ -218,6 +218,90 @@ const FOCUS_ORDER: Record<UserFocus, MissionItem['id'][]> = {
   balanced: ['workout', 'walk', 'diet', 'mood', 'reading'],
 };
 
+const MISSION_STEP_META: Record<MissionItem['id'], { icon: string; title: string; subtitle: string; doneColor: string }> = {
+  workout: {
+    icon: '🔥',
+    title: 'Workout',
+    subtitle: 'Finish the gym session',
+    doneColor: '#FF6B35',
+  },
+  walk: {
+    icon: '🚶',
+    title: 'Walk',
+    subtitle: 'Log movement or recovery time',
+    doneColor: '#38BDF8',
+  },
+  diet: {
+    icon: '🥗',
+    title: 'Diet',
+    subtitle: 'Log all four meal slots',
+    doneColor: '#FFE66D',
+  },
+  mood: {
+    icon: '🧠',
+    title: 'Mood',
+    subtitle: 'Check in on how today feels',
+    doneColor: '#00F5D4',
+  },
+  reading: {
+    icon: '📚',
+    title: 'Reading',
+    subtitle: 'Mark reading as done',
+    doneColor: '#A855F7',
+  },
+};
+
+type FocusSignalId = MissionItem['id'] | 'photo';
+
+function getMissionDoneById(log: DailyLog, dietDone: boolean): Record<MissionItem['id'], boolean> {
+  return {
+    workout: log.gymWorkoutDone,
+    walk: log.outdoorWalkDone,
+    diet: dietDone,
+    mood: log.moodEmoji !== '',
+    reading: log.readingDone,
+  };
+}
+
+function getTodayFocus(
+  missionDoneById: Record<MissionItem['id'], boolean>,
+  hasPhoto: boolean,
+  userFocus: UserFocus
+) {
+  const doneBySignal: Record<FocusSignalId, boolean> = { ...missionDoneById, photo: hasPhoto };
+  const orderedSignals: FocusSignalId[] = [...FOCUS_ORDER[userFocus], 'photo'];
+  const completedCount = orderedSignals.filter((id) => doneBySignal[id]).length;
+  const totalCount = orderedSignals.length;
+  const nextSignal = orderedSignals.find((id) => !doneBySignal[id]);
+
+  if (!nextSignal) {
+    return {
+      actionText: 'All key check-ins are done for today.',
+      detailText: `${completedCount}/${totalCount} complete · Stay consistent tomorrow.`,
+      completedCount,
+      totalCount,
+      complete: true,
+    };
+  }
+
+  const actionMap: Record<FocusSignalId, { action: string; rationale: string }> = {
+    workout: { action: 'Finish your gym workout session.', rationale: 'Locks in your streak and biggest XP gain' },
+    walk: { action: 'Log your outdoor walk.', rationale: 'Builds recovery and daily movement consistency' },
+    diet: { action: 'Complete all 4 diet entries.', rationale: 'Improves nutrition adherence for the day' },
+    mood: { action: 'Check in your mood.', rationale: 'Improves your daily recovery signal' },
+    reading: { action: 'Mark reading as done.', rationale: 'Keeps your habit stack complete' },
+    photo: { action: 'Upload a progress photo.', rationale: 'Creates visual proof of your consistency' },
+  };
+
+  return {
+    actionText: actionMap[nextSignal].action,
+    detailText: `${actionMap[nextSignal].rationale} · ${completedCount}/${totalCount} complete`,
+    completedCount,
+    totalCount,
+    complete: false,
+  };
+}
+
 export default function TodayScreen() {
   const [log, setLog] = useState<DailyLog | null>(null);
   const [appState, setAppState] = useState<AppState>({
@@ -269,13 +353,7 @@ export default function TodayScreen() {
     if (log.moodEmoji !== '') completedSources.push('mood');
     if (log.readingDone) completedSources.push('reading');
 
-    const missionDoneById: Record<MissionItem['id'], boolean> = {
-      workout: log.gymWorkoutDone,
-      walk: log.outdoorWalkDone,
-      diet: dietDone,
-      mood: log.moodEmoji !== '',
-      reading: log.readingDone,
-    };
+    const missionDoneById = getMissionDoneById(log, dietDone);
     const missionPathIds = FOCUS_ORDER[userFocus].slice(0, 3);
     const missionComplete = missionPathIds.every((id) => missionDoneById[id]);
     const missionTelemetryKey = `${log.date}:${userFocus}`;
@@ -520,40 +598,36 @@ export default function TodayScreen() {
     log.moodEmoji !== '',
   ].filter(Boolean).length;
   const selectedMood = MOODS.find((m) => m.value === log.moodEmoji);
-  const dailyFlow = [
-    {
-      id: 'prep',
-      icon: '🟢',
-      title: 'Prep',
-      subtitle: 'Prime your body + mind',
-      done: quickLogDoneCount > 0 || log.moodEmoji !== '',
-      doneColor: '#38BDF8',
-    },
-    {
-      id: 'perform',
-      icon: '🔥',
-      title: 'Perform',
-      subtitle: 'Finish your workout quest',
-      done: log.gymWorkoutDone,
-      doneColor: '#FF6B35',
-    },
-    {
-      id: 'recover',
-      icon: '🌙',
-      title: 'Recover',
-      subtitle: 'Log mood + recovery habits',
-      done: log.gymWorkoutDone && (log.outdoorWalkDone || log.readingDone || log.moodEmoji !== ''),
-      doneColor: '#00F5D4',
-    },
-  ] as const;
+  const missionDoneById = getMissionDoneById(log, dietComplete);
+  const todayFocus = getTodayFocus(missionDoneById, currentPhotos.length > 0, userFocus);
+  const questStepIds = FOCUS_ORDER[userFocus].slice(0, 3);
+  const dailyFlow = questStepIds.map((id) => ({
+    id,
+    ...MISSION_STEP_META[id],
+    done: missionDoneById[id],
+  }));
+  const questCompletedCount = dailyFlow.filter((step) => step.done).length;
+  const questTotalCount = dailyFlow.length;
   const nextQuestStep = dailyFlow.find((step) => !step.done);
   const questHint = nextQuestStep
     ? `Next: ${nextQuestStep.title} — ${nextQuestStep.subtitle}`
-    : 'Daily flow complete. Keep recovery consistent.';
+    : 'Daily quest complete. Keep the streak going.';
   const momentumScore = Math.round(
     ((completedCount / 5) * 0.65 + Math.min(appState.streak, 30) / 30 * 0.35) * 100
   );
   const streakMilestone = appState.streak > 0 && appState.streak % 7 === 0;
+  const streakIcon = appState.streak >= 75
+    ? '👑'
+    : appState.streak >= 50
+      ? '🏆'
+      : appState.streak >= 25
+        ? '🌟'
+        : appState.streak >= 14
+          ? '💪'
+          : appState.streak >= 7
+            ? '⚡'
+            : '🔥';
+  const streakFloatDuration = appState.streak >= 25 ? 2.2 : appState.streak >= 7 ? 2.6 : 3;
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-5 pb-28">
@@ -584,6 +658,40 @@ export default function TodayScreen() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <motion.div
+        className="rounded-2xl p-4"
+        style={{
+          background: 'linear-gradient(135deg, rgba(255,107,53,0.12), rgba(168,85,247,0.08))',
+          border: `1px solid ${todayFocus.complete ? 'rgba(0,245,212,0.3)' : 'rgba(255,107,53,0.3)'}`,
+        }}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.18em] font-black" style={{ color: '#FF6B35' }}>
+              Today Focus
+            </div>
+            <p className="text-sm font-bold mt-1" style={{ color: '#F8FAFC' }}>
+              {todayFocus.actionText}
+            </p>
+            <p className="text-[11px] mt-1" style={{ color: '#94A3B8' }}>
+              {todayFocus.detailText}
+            </p>
+          </div>
+          <span
+            className="text-[10px] px-2.5 py-1 rounded-full font-bold whitespace-nowrap"
+            style={{
+              background: todayFocus.complete ? 'rgba(0,245,212,0.15)' : 'rgba(255,255,255,0.06)',
+              color: todayFocus.complete ? '#00F5D4' : '#FFE66D',
+              border: `1px solid ${todayFocus.complete ? 'rgba(0,245,212,0.4)' : 'rgba(255,230,109,0.35)'}`,
+            }}
+          >
+            {todayFocus.completedCount}/{todayFocus.totalCount}
+          </span>
+        </div>
+      </motion.div>
 
       {/* ── Hero Card with Streak & Progress Ring ────────────────────────── */}
       <motion.div
@@ -625,7 +733,12 @@ export default function TodayScreen() {
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 200 }}
             >
-              <span className="text-4xl" style={{ animation: 'float 3s ease-in-out infinite' }}>🔥</span>
+              <span
+                className="text-4xl"
+                style={{ animation: `float ${streakFloatDuration}s ease-in-out infinite` }}
+              >
+                {streakIcon}
+              </span>
               <div>
                 <span className="text-5xl font-black" style={{
                   background: 'linear-gradient(135deg, #FF6B35, #FFE66D)',
@@ -687,13 +800,13 @@ export default function TodayScreen() {
             <motion.div
               className="h-full rounded-full"
               style={{
-                background: completedCount === 5
+                background: questCompletedCount === questTotalCount
                   ? 'linear-gradient(90deg, #00F5D4, #38BDF8)'
                   : 'linear-gradient(90deg, #FF6B35, #A855F7, #FFE66D)',
                 backgroundSize: '200% 100%',
               }}
               animate={{
-                width: `${(completedCount / 5) * 100}%`,
+                width: `${(questCompletedCount / questTotalCount) * 100}%`,
               }}
               transition={{
                 width: { type: 'spring', stiffness: 80, damping: 15 },
@@ -1008,6 +1121,7 @@ export default function TodayScreen() {
                     {currentPhotos.map((url, idx) => (
                       <div key={idx} className="relative rounded-xl overflow-hidden aspect-[3/4]"
                         style={{ border: '2px solid #00F5D4' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
                         <div className="absolute bottom-0 inset-x-0 py-1 text-center text-[10px] font-bold"
                           style={{ background: 'rgba(0,0,0,0.6)', color: '#00F5D4' }}>

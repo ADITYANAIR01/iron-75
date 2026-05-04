@@ -6,6 +6,7 @@ import { SessionSpec, ExerciseSpec } from '../lib/pplData';
 import { getToday, saveDailyLog, getOrCreateTodayLog, getDayOfWeek, getWorkoutState, saveWorkoutState, isWorkoutComplete, markWorkoutComplete } from '../lib/storage';
 import { getSessionForDow, getAllSessionSpecs } from '../lib/customWorkouts';
 import { buildWorkoutProgressionReport } from '../lib/workoutProgression';
+import { dispatchDashboardTab } from '../lib/uiEvents';
 import WorkoutPlanner from './WorkoutPlanner';
 import QuestPath from './QuestPath';
 import type { ExerciseState, SetState } from '../lib/types';
@@ -334,6 +335,7 @@ export default function WorkoutScreen() {
   const [showPostAnimation, setShowPostAnimation] = useState(false);
   const preAnimationFiredRef = useRef(false);
   const postAnimationFiredRef = useRef(false);
+  const goToToday = () => dispatchDashboardTab('today');
 
   const refreshSessions = useCallback(() => {
     const sessions = getAllSessionSpecs();
@@ -378,11 +380,18 @@ export default function WorkoutScreen() {
       const sanitizedNext = sanitizeExerciseState(next, expectedSets);
       setExerciseStates((prev) => {
         const updated = { ...prev, [exName]: sanitizedNext };
-        saveWorkoutState(today, session.key, updated);
+        const allDone = session.exercises.every((ex) => {
+          const sets = updated[ex.name]?.sets ?? [];
+          return sets.length > 0 && sets.every((s) => s.done);
+        });
+        if (!allDone && sessionComplete) {
+          setSessionComplete(false);
+        }
+        saveWorkoutState(today, session.key, updated, allDone);
         return updated;
       });
     },
-    [today, session]
+    [today, session, sessionComplete]
   );
 
   // Auto-complete session when every set of every exercise is done
@@ -394,12 +403,12 @@ export default function WorkoutScreen() {
         (exerciseStates[ex.name]?.sets ?? []).every((s) => s.done)
     );
     if (allDone) {
-      if (!isWorkoutComplete(today, session.key)) {
-        const log = getOrCreateTodayLog();
+      const log = getOrCreateTodayLog();
+      if (!log.gymWorkoutDone) {
         saveDailyLog({ ...log, gymWorkoutDone: true });
-        markWorkoutComplete(today, session.key);
-        setSessionComplete(true);
       }
+      markWorkoutComplete(today, session.key);
+      setSessionComplete(true);
     }
   }, [exerciseStates, mounted, session, sessionComplete, today]);
 
@@ -500,23 +509,69 @@ export default function WorkoutScreen() {
   }
 
   if (!session) {
+    const setupSteps = [
+      { icon: '🧭', title: 'Open Planner', detail: 'Create a quick 3-exercise session.' },
+      { icon: '📅', title: 'Assign a day', detail: 'Pick today so it shows up instantly.' },
+      { icon: '🔥', title: 'Log your sets', detail: 'First completion starts the streak.' },
+    ];
     return (
       <div className="flex flex-col gap-4 px-4 pt-5 pb-24">
         <div
           className="rounded-3xl p-6 text-center"
           style={{ background: 'rgba(12,12,30,0.8)', border: '1px solid rgba(255,255,255,0.08)' }}
         >
-          <div className="mb-2 text-4xl">🧩</div>
-          <p className="text-sm font-bold text-white">No workout routine configured yet</p>
-          <p className="mt-1 text-xs text-gray-400">Open Planner to create your first custom session and assign days.</p>
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setShowPlanner(true)}
-            className="mt-4 rounded-full px-4 py-2 text-xs font-bold"
-            style={{ background: 'linear-gradient(135deg, #A855F7, #FF6B9D)', color: '#06060F' }}
-          >
-            📋 Open Planner
-          </motion.button>
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="mb-2 text-4xl">🧩</div>
+            <p className="text-sm font-bold text-white">Build your first workout plan</p>
+            <p className="mt-1 text-xs text-gray-400">It only takes a minute to unlock streaks and rewards.</p>
+          </motion.div>
+          <div className="mt-4 grid gap-2 text-left">
+            {setupSteps.map((step, idx) => (
+              <motion.div
+                key={step.title}
+                className="flex items-start gap-3 rounded-xl px-3 py-2"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.05 + idx * 0.08 }}
+              >
+                <span className="text-lg">{step.icon}</span>
+                <div>
+                  <div className="text-xs font-bold text-white">{step.title}</div>
+                  <div className="text-[10px] text-gray-500">{step.detail}</div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowPlanner(true)}
+              className="rounded-full px-4 py-2 text-xs font-bold"
+              style={{ background: 'linear-gradient(135deg, #A855F7, #FF6B9D)', color: '#06060F' }}
+            >
+              📋 Open Planner
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={goToToday}
+              className="rounded-full px-4 py-2 text-xs font-bold"
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', color: '#e2e8f0' }}
+            >
+              🧭 Go to Today
+            </motion.button>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {['Day 1: streak ignites', 'Day 3: momentum boost', 'Week 1: Weekly Wrapped'].map((label) => (
+              <div
+                key={label}
+                className="rounded-full px-3 py-1 text-[10px] font-bold"
+                style={{ background: 'rgba(0,245,212,0.12)', border: '1px solid rgba(0,245,212,0.3)', color: '#00F5D4' }}
+              >
+                {label}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );

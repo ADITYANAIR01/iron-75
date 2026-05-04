@@ -223,9 +223,18 @@ function InlineSessionEditor({
     cooldown: [...(session.cooldown ?? [])],
   }));
 
+  useEffect(() => {
+    setDraft({
+      ...session,
+      exercises: session.exercises.map((exercise) => ({ ...exercise })),
+      warmup: [...(session.warmup ?? [])],
+      cooldown: [...(session.cooldown ?? [])],
+    });
+  }, [session]);
+
   const selectedDays = new Set(
     Object.entries(assignments)
-      .filter(([, sessionId]) => sessionId === session.id)
+      .filter(([, sessionId]) => sessionId === draft.id)
       .map(([dow]) => Number(dow))
   );
 

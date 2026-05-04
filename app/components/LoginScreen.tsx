@@ -20,11 +20,24 @@ export default function LoginScreen() {
     setError(null);
     setSuccess(null);
 
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError('Enter your email address.');
+      setLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      setLoading(false);
+      return;
+    }
+
     if (mode === 'login') {
-      const { error } = await signInWithEmail(email, password);
+      const { error } = await signInWithEmail(trimmedEmail, password);
       if (error) setError(error);
     } else {
-      const { error } = await signUpWithEmail(email, password);
+      const { error } = await signUpWithEmail(trimmedEmail, password);
       if (error) {
         setError(error);
       } else {

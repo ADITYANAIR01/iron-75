@@ -17,6 +17,7 @@ import {
   Legend,
 } from 'recharts';
 import { DailyLog } from '../lib/types';
+import { dispatchDashboardTab } from '../lib/uiEvents';
 
 interface DayStatus {
   day: number;
@@ -305,14 +306,43 @@ function ChartTooltip({
   );
 }
 
-function EmptyState() {
+function EmptyState({
+  title = 'No data yet',
+  subtitle = 'Complete Day 1 to see your trends',
+  actionLabel,
+  onAction,
+}: {
+  title?: string;
+  subtitle?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3">
-      <span className="text-5xl">📊</span>
-      <p className="text-center text-sm" style={{ color: '#64748b' }}>
-        No data yet — complete Day 1 to see your trends
+    <motion.div
+      className="flex flex-col items-center justify-center py-12 gap-3"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <motion.span className="text-5xl" initial={{ scale: 0.9 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 200 }}>
+        📊
+      </motion.span>
+      <p className="text-center text-sm font-bold" style={{ color: '#e2e8f0' }}>
+        {title}
       </p>
-    </div>
+      <p className="text-center text-xs" style={{ color: '#64748b' }}>
+        {subtitle}
+      </p>
+      {onAction && actionLabel && (
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          onClick={onAction}
+          className="mt-1 rounded-full px-4 py-2 text-xs font-bold"
+          style={{ background: 'linear-gradient(135deg, #00F5D4, #38BDF8)', color: '#06060F' }}
+        >
+          {actionLabel}
+        </motion.button>
+      )}
+    </motion.div>
   );
 }
 
@@ -394,6 +424,12 @@ export default function ProgressScreen() {
     flatPhotos.length > MAX_PHOTO_CELLS
       ? flatPhotos.slice(flatPhotos.length - MAX_PHOTO_CELLS)
       : flatPhotos;
+  const goToToday = () => dispatchDashboardTab('today');
+  const launchSteps = [
+    { icon: '🏋️', title: 'Log a workout', detail: 'Finish one session to ignite the streak.' },
+    { icon: '🥗', title: 'Log a meal', detail: 'Easy win that counts toward momentum.' },
+    { icon: '🙂', title: 'Set your mood', detail: 'Quick check-in to complete Day 1.' },
+  ];
 
   return (
     <div className="flex flex-col gap-4 px-4 pt-6 pb-24">
@@ -458,6 +494,48 @@ export default function ProgressScreen() {
             transition={{ duration: 0.22 }}
             className="flex flex-col gap-4"
           >
+            {completeCount === 0 && (
+              <motion.div
+                className="rounded-2xl p-4"
+                style={{ background: 'linear-gradient(135deg, rgba(0,245,212,0.12), rgba(56,189,248,0.08))', border: '1px solid rgba(0,245,212,0.25)' }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-black text-white">First Win Launchpad</div>
+                  <span className="text-[10px] font-bold" style={{ color: '#00F5D4' }}>Unlock Weekly Wrapped at 7 days</span>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {launchSteps.map((step, idx) => (
+                    <motion.div
+                      key={step.title}
+                      className="flex items-start gap-3 rounded-xl px-3 py-2"
+                      style={{ background: 'rgba(12,12,30,0.6)', border: '1px solid rgba(255,255,255,0.06)' }}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.05 + idx * 0.07 }}
+                    >
+                      <span className="text-lg">{step.icon}</span>
+                      <div>
+                        <div className="text-xs font-bold text-white">{step.title}</div>
+                        <div className="text-[10px] text-gray-500">{step.detail}</div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={goToToday}
+                    className="rounded-full px-4 py-2 text-xs font-bold"
+                    style={{ background: 'linear-gradient(135deg, #00F5D4, #38BDF8)', color: '#06060F' }}
+                  >
+                    Start Day 1
+                  </motion.button>
+                  <span className="text-[10px] text-gray-500">2–3 min setup</span>
+                </div>
+              </motion.div>
+            )}
             {/* Heatmap view toggle */}
             <div
               className="flex rounded-xl overflow-hidden"
@@ -597,6 +675,14 @@ export default function ProgressScreen() {
                 <p className="text-xs" style={{ color: '#64748b' }}>
                   Upload up to 4 daily progress photos from the Today tab.
                 </p>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={goToToday}
+                  className="mt-4 rounded-full px-4 py-2 text-xs font-bold"
+                  style={{ background: 'linear-gradient(135deg, #FF6B35, #FFE66D)', color: '#06060F' }}
+                >
+                  Add a photo today
+                </motion.button>
               </div>
             ) : (
               <>
@@ -688,7 +774,12 @@ export default function ProgressScreen() {
                 className="rounded-2xl"
                 style={{ background: 'rgba(13,13,40,0.8)', border: '1px solid #2a2a4a' }}
               >
-                <EmptyState />
+                <EmptyState
+                  title="No trends yet"
+                  subtitle="Complete Day 1 to unlock your charts."
+                  actionLabel="Log Day 1"
+                  onAction={goToToday}
+                />
               </div>
             ) : (
               <>

@@ -227,7 +227,7 @@ export default function LandingPage() {
               Simple tracking. Clear momentum.
             </h3>
             <div className="mt-6 space-y-4">
-              {processSteps.map((item, index) => (
+              {processSteps.map((item) => (
                 <div key={item.step} className="flex gap-4 rounded-2xl border border-slate-900/10 bg-white/80 p-4">
                   <span className="text-xl font-black text-[#f95738]">{item.step}</span>
                   <div>

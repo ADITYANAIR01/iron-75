@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DAILY_REMINDER_DELIVERY_LOCK_KEY,
   DAILY_REMINDER_LAST_SENT_DATE_KEY,
   DAILY_REMINDER_SETTINGS_KEY,
   DEFAULT_DAILY_REMINDER_TIME,
@@ -14,6 +15,8 @@ import {
   saveDailyReminderSettings,
   shouldSendReminderNow,
   showReminderNotification,
+  releaseReminderDeliveryLock,
+  tryAcquireReminderDeliveryLock,
   type ReminderStorage,
 } from './notifications';
 
@@ -30,6 +33,9 @@ function createMemoryStorage(
     setItem(key: string, value: string) {
       if (options.throwOnSet) throw new Error('set failed');
       store.set(key, value);
+    },
+    removeItem(key: string) {
+      store.delete(key);
     },
   };
 }
@@ -132,6 +138,18 @@ describe('notifications helpers', () => {
     expect(getLastReminderSentDate({ storage })).toBe('2026-03-12');
     expect(shouldSendReminderNow('09:00', evening, dateKey)).toBe(false);
     expect(storage.getItem(DAILY_REMINDER_LAST_SENT_DATE_KEY)).toBe('2026-03-12');
+  });
+
+  it('uses a short-lived delivery lock to avoid duplicate reminders across tabs', () => {
+    const storage = createMemoryStorage();
+    const now = new Date('2026-03-12T22:00:00.000Z');
+
+    expect(tryAcquireReminderDeliveryLock('tab-a', { storage, now, ttlMs: 30_000 })).toBe(true);
+    expect(tryAcquireReminderDeliveryLock('tab-b', { storage, now, ttlMs: 30_000 })).toBe(false);
+
+    releaseReminderDeliveryLock('tab-a', { storage });
+    expect(storage.getItem(DAILY_REMINDER_DELIVERY_LOCK_KEY)).toBeNull();
+    expect(tryAcquireReminderDeliveryLock('tab-b', { storage, now, ttlMs: 30_000 })).toBe(true);
   });
 
   it('shows reminders through service worker when available', async () => {

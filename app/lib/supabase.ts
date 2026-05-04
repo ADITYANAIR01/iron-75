@@ -1,11 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-const REQUIRED_SUPABASE_ENV_VARS = [
-  'NEXT_PUBLIC_SUPABASE_URL',
-  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-] as const;
-
-type RequiredSupabaseEnvVar = (typeof REQUIRED_SUPABASE_ENV_VARS)[number];
+type RequiredSupabaseEnvVar = 'NEXT_PUBLIC_SUPABASE_URL' | 'NEXT_PUBLIC_SUPABASE_ANON_KEY';
 
 function getMissingSupabaseEnvVars(): RequiredSupabaseEnvVar[] {
   const missing: RequiredSupabaseEnvVar[] = [];
